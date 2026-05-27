@@ -24,13 +24,64 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from config import DEFAULT_PRESET, FFPROBE_BIN, OUTPUT_DIR, TEMP_DIR, setup_check
-from core.audio import add_audio_overlays, mix_audio_for_video
-from core.compositor import assemble_video, generate_preview_frame, list_fonts
-from core.downloader import download_clips_parallel
-from core.elevenlabs_tts import generate_voiceover, list_voices
-from core.presets import delete_preset, list_presets, load_preset, save_preset
-from core.processor import trim_clip
+# ── Defensive imports ─────────────────────────────────────────────────────────
+# If ANY module fails to load (missing package, bad import, etc.) the exception
+# would normally propagate BEFORE st.set_page_config() runs, causing the
+# "Oh no. Error running app." full-page crash instead of an inline error.
+# We trap it here, store the traceback, and show it as a styled error page
+# after set_page_config() so the user (and developer) can see what went wrong.
+_BOOT_ERROR: "str | None" = None
+try:
+    from config import DEFAULT_PRESET, FFPROBE_BIN, OUTPUT_DIR, TEMP_DIR, setup_check
+    from core.audio import add_audio_overlays, mix_audio_for_video
+    from core.compositor import assemble_video, generate_preview_frame, list_fonts
+    from core.downloader import download_clips_parallel
+    from core.elevenlabs_tts import generate_voiceover, list_voices
+    from core.presets import delete_preset, list_presets, load_preset, save_preset
+    from core.processor import trim_clip
+except Exception as _boot_exc:
+    import traceback as _boot_tb
+    _BOOT_ERROR = _boot_tb.format_exc()
+    # ── Stub definitions ──────────────────────────────────────────────────────
+    # Keep the rest of the module-level code from crashing with NameError
+    # while we're waiting to show the error page.
+    _R = Path(__file__).parent
+    TEMP_DIR    = _R / "temp";   TEMP_DIR.mkdir(exist_ok=True)
+    OUTPUT_DIR  = _R / "output"; OUTPUT_DIR.mkdir(exist_ok=True)
+    FFPROBE_BIN = "ffprobe"
+    DEFAULT_PRESET = {
+        "name": "default",
+        "rank_colors": {str(i): "#FFFFFF" for i in range(1, 11)},
+        "overlay_style": {
+            "panel_alpha": 0, "panel_width": 260,
+            "num_font": "auto", "num_size": 72, "num_stroke": 5,
+            "num_stroke_color": "#000000", "num_x": 20,
+            "num_spacing": 140, "num_start_y": 60,
+            "num_use_rank_color": True, "num_color": "#FFFFFF",
+            "title_font": "auto", "title_size": 26, "title_color": "#FFFFFF",
+            "title_stroke": 3, "title_stroke_color": "#000000", "title_gap": 6,
+            "banner_enabled": True, "banner_bg_alpha": 255, "banner_bg_height": 0,
+            "banner_font": "auto", "banner_size": 48, "banner_color": "#FFFFFF",
+            "banner_stroke": 4, "banner_stroke_color": "#000000",
+            "rank_prefixes": {str(i): "" for i in range(1, 11)},
+        },
+        "crossfade_duration": 0.25, "music_duck_level": 0.12,
+        "music_full_level": 0.35, "video_bitrate": "8000k",
+    }
+    def setup_check():             return []                     # type: ignore[misc]
+    def add_audio_overlays(*a, **k): return None                 # type: ignore[misc]
+    def mix_audio_for_video(*a, **k): return None                # type: ignore[misc]
+    def assemble_video(*a, **k):   return None                   # type: ignore[misc]
+    def generate_preview_frame(*a, **k): return ""               # type: ignore[misc]
+    def list_fonts():              return {"Auto": "auto"}       # type: ignore[misc]
+    def download_clips_parallel(*a, **k): return []              # type: ignore[misc]
+    def generate_voiceover(*a, **k): return None                 # type: ignore[misc]
+    def list_voices(*a, **k):      return []                     # type: ignore[misc]
+    def delete_preset(*a, **k):    return False                  # type: ignore[misc]
+    def list_presets():            return []                     # type: ignore[misc]
+    def load_preset(n):            return DEFAULT_PRESET.copy()  # type: ignore[misc]
+    def save_preset(*a, **k):      pass                          # type: ignore[misc]
+    def trim_clip(*a, **k):        return None                   # type: ignore[misc]
 
 # Optional drag-and-drop component
 # Catch Exception (not just ImportError) — newer Streamlit versions can raise
@@ -592,6 +643,23 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
+# ── Boot error gate ───────────────────────────────────────────────────────────
+# If any core module failed to import, show the full traceback here (styled,
+# readable) instead of the generic "Oh no" crash page.
+if _BOOT_ERROR:
+    st.error("🚨 **Application failed to start** — a required module could not be loaded.")
+    with st.expander("📋 Full error traceback — share this to get help", expanded=True):
+        st.code(_BOOT_ERROR)
+    st.info(
+        "**Common causes on Streamlit Cloud:**\n"
+        "- A package in `requirements.txt` failed to install\n"
+        "- Python version mismatch (check `runtime.txt`)\n"
+        "- A broken `.pyc` cache — try rebooting the app from the Streamlit Cloud dashboard\n\n"
+        "**Quick fix:** Open the Streamlit Cloud dashboard → three-dot menu → *Reboot app*"
+    )
+    st.stop()
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 #  Session-state initialisation
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -639,29 +707,34 @@ _SS_DEFAULTS: dict = {
     # PWA notification — set True after generation, cleared after firing
     "notification_pending": False,
 }
-for _k, _v in _SS_DEFAULTS.items():
-    if _k not in st.session_state:
-        st.session_state[_k] = _v
+try:
+    for _k, _v in _SS_DEFAULTS.items():
+        if _k not in st.session_state:
+            st.session_state[_k] = _v
 
-# Back-compat: ensure all clip fields exist
-for _c in st.session_state.clips:
-    if "id" not in _c:
-        _c["id"] = uuid.uuid4().hex[:8]
-    _c.setdefault("duration_hint",  0.0)
-    _c.setdefault("trim_start_sec", 0.0)
-    _c.setdefault("trim_end_sec",   0.0)
+    # Back-compat: ensure all clip fields exist
+    for _c in st.session_state.clips:
+        if "id" not in _c:
+            _c["id"] = uuid.uuid4().hex[:8]
+        _c.setdefault("duration_hint",  0.0)
+        _c.setdefault("trim_start_sec", 0.0)
+        _c.setdefault("trim_end_sec",   0.0)
 
-# Ensure overlay_style is complete
-_ov = st.session_state.preset.setdefault("overlay_style", {})
-for _dk, _dv in DEFAULT_PRESET["overlay_style"].items():
-    _ov.setdefault(_dk, _dv)
-_rp = _ov.setdefault("rank_prefixes", {})
-for _ri in range(1, 11):
-    _rp.setdefault(str(_ri), "")
-for _ri in range(1, 11):
-    st.session_state.preset["rank_colors"].setdefault(
-        str(_ri), DEFAULT_PRESET["rank_colors"].get(str(_ri), "#FFFFFF")
-    )
+    # Ensure overlay_style is complete
+    _ov = st.session_state.preset.setdefault("overlay_style", {})
+    for _dk, _dv in DEFAULT_PRESET["overlay_style"].items():
+        _ov.setdefault(_dk, _dv)
+    _rp = _ov.setdefault("rank_prefixes", {})
+    for _ri in range(1, 11):
+        _rp.setdefault(str(_ri), "")
+    for _ri in range(1, 11):
+        st.session_state.preset["rank_colors"].setdefault(
+            str(_ri), DEFAULT_PRESET["rank_colors"].get(str(_ri), "#FFFFFF")
+        )
+except Exception as _ss_err:
+    # Corrupted or incompatible session state — reset and continue
+    for _k2, _v2 in _SS_DEFAULTS.items():
+        st.session_state[_k2] = _v2
 
 
 # ── Dependency check ──────────────────────────────────────────────────────────
