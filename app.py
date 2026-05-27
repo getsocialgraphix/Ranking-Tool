@@ -1530,16 +1530,43 @@ with right_col:
             st.session_state.processing   = True
             st.session_state.output_video = None
 
+            # Persistent files read by the Monitor page
+            _LOG_FILE   = TEMP_DIR / "pipeline.log"
+            _STATE_FILE = TEMP_DIR / "pipeline_state.json"
+            try:
+                _LOG_FILE.write_text("", encoding="utf-8")   # fresh log
+            except Exception:
+                pass
+
             log_area     = st.empty()
             log_lines: list[str] = []
 
             def _log(msg: str) -> None:
                 log_lines.append(msg)
                 log_area.code("\n".join(log_lines[-18:]))
+                # Write to persistent log file for Monitor page
+                try:
+                    ts = datetime.now().strftime("%H:%M:%S")
+                    with open(_LOG_FILE, "a", encoding="utf-8") as _lf:
+                        _lf.write(f"[{ts}] {msg}\n")
+                except Exception:
+                    pass
 
             def _advance(pct: int, msg: str) -> None:
                 _render_progress(pct, msg)
                 _log(msg)
+                # Persist current step for Monitor page
+                try:
+                    _STATE_FILE.write_text(
+                        json.dumps({
+                            "pct": pct,
+                            "msg": msg,
+                            "ts":  datetime.now().strftime("%H:%M:%S"),
+                        }),
+                        encoding="utf-8",
+                    )
+                except Exception:
+                    pass
 
             try:
                 total     = len(valid_clips)
