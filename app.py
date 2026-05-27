@@ -736,7 +736,13 @@ except Exception as _ss_err:
 
 
 # ── Dependency check ──────────────────────────────────────────────────────────
-_issues = setup_check()
+# Cache for 5 minutes so we don't spawn two ffmpeg subprocesses on every
+# single Streamlit rerun (every widget interaction triggers a rerun).
+@st.cache_data(ttl=300, show_spinner=False)
+def _cached_setup_check() -> list:
+    return setup_check()
+
+_issues = _cached_setup_check()
 if _issues:
     for _i in _issues:
         st.error(_i)

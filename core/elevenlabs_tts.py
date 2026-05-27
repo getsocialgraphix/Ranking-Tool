@@ -41,7 +41,8 @@ def list_voices(api_key: str) -> list[dict]:
                 "id":       v["voice_id"],
                 "name":     v["name"],
                 "category": v.get("category", ""),
-                "labels":   v.get("labels", {}),
+                # deliberately omit "labels" — can be a large nested dict
+                # that bloats session state and wastes RAM on Cloud
             }
             for v in r.json().get("voices", [])
         ]
@@ -113,10 +114,14 @@ def generate_voiceover(
             headers={**_hdr(api_key), "Content-Type": "application/json", "Accept": "audio/mpeg"},
             json=payload,
             timeout=90,
+            stream=True,                    # stream → never load full audio into RAM
         )
         r.raise_for_status()
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-        Path(output_path).write_bytes(r.content)
+        with open(output_path, "wb") as _f:  # write in 32 KB chunks
+            for _chunk in r.iter_content(chunk_size=32_768):
+                if _chunk:
+                    _f.write(_chunk)
         return output_path
     except Exception:
         return None
