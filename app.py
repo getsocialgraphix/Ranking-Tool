@@ -41,6 +41,48 @@ try:
 except Exception:
     _HAS_SORTABLES = False
 
+# ── PWA icon generation ────────────────────────────────────────────────────────
+# Generates icon-192.png / icon-512.png in ./static/ on first run.
+# Uses the bundled Montserrat-Black font if available, falls back to default.
+_STATIC_DIR = Path(__file__).parent / "static"
+_STATIC_DIR.mkdir(exist_ok=True)
+
+def _generate_pwa_icons() -> None:
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+        _font_path = Path(__file__).parent / "assets" / "fonts" / "Montserrat-Black.ttf"
+        for size in (192, 512):
+            icon_path = _STATIC_DIR / f"icon-{size}.png"
+            if icon_path.exists():
+                continue
+            img  = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+            draw = ImageDraw.Draw(img)
+            # Rounded rectangle background  (purple → indigo)
+            r = size // 5
+            draw.rounded_rectangle([0, 0, size - 1, size - 1],
+                                   radius=r, fill=(124, 58, 237, 255))
+            pad = size // 6
+            draw.rounded_rectangle([pad, pad, size - pad - 1, size - pad - 1],
+                                   radius=size // 7, fill=(79, 70, 229, 160))
+            # "R" letter centred
+            fs = size // 2
+            try:
+                font = ImageFont.truetype(str(_font_path), fs) if _font_path.exists() \
+                       else ImageFont.load_default()
+            except Exception:
+                font = ImageFont.load_default()
+            bb = draw.textbbox((0, 0), "R", font=font)
+            draw.text(
+                ((size - (bb[2] - bb[0])) // 2 - bb[0],
+                 (size - (bb[3] - bb[1])) // 2 - bb[1]),
+                "R", fill=(255, 255, 255, 245), font=font,
+            )
+            img.save(str(icon_path), "PNG")
+    except Exception:
+        pass  # icons are cosmetic — never crash the app
+
+_generate_pwa_icons()
+
 # ── Page config ────────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="Ranking Tool",
@@ -510,7 +552,40 @@ hr {
     .stButton > button { min-height: 48px !important; border-radius: 14px !important; }
     .rt-hero { border-radius: 14px; }
 }
+
+/* ================================================================
+   PWA / APP-FEEL  —  hide Streamlit browser chrome
+   ================================================================ */
+
+/* Footer "Made with Streamlit" */
+footer { visibility: hidden !important; height: 0 !important; }
+
+/* Top-right toolbar (deploy / share buttons) */
+[data-testid="stToolbar"] { display: none !important; }
+
+/* Coloured decoration ribbon at top */
+[data-testid="stDecoration"] { display: none !important; }
+
+/* Hamburger menu (three-line icon) — hide text inside, keep sidebar toggle */
+#MainMenu { visibility: hidden !important; }
+
+/* Viewer badge (bottom-right "Hosted with Streamlit") */
+.viewerBadge_container__r5tak,
+.viewerBadge_link__qRIco { display: none !important; }
 </style>
+""", unsafe_allow_html=True)
+
+
+# ── PWA meta tags (injected into page — chrome treats link/meta in body fine) ─
+st.markdown("""
+<link rel="manifest"          href="/app/static/manifest.json">
+<link rel="apple-touch-icon"  href="/app/static/icon-192.png">
+<meta name="theme-color"                    content="#7c3aed">
+<meta name="apple-mobile-web-app-capable"   content="yes">
+<meta name="apple-mobile-web-app-title"     content="Rank">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="mobile-web-app-capable"         content="yes">
+<meta name="application-name"               content="Rank">
 """, unsafe_allow_html=True)
 
 
@@ -556,6 +631,8 @@ _SS_DEFAULTS: dict = {
     "el_model":          "eleven_multilingual_v2",
     "sfx_list":          [],
     "music_path":        None,
+    # PWA notification — set True after generation, cleared after firing
+    "notification_pending": False,
 }
 for _k, _v in _SS_DEFAULTS.items():
     if _k not in st.session_state:
@@ -657,6 +734,59 @@ with st.sidebar:
             float(st.session_state.preset.get("crossfade_duration", 0.25)),
             step=0.05, key="cf_slider",
         )
+
+    # ── Notifications ──────────────────────────────────────────────────────────
+    st.markdown("---")
+    st.markdown("""
+    <div style="font-size:0.72rem;font-weight:600;letter-spacing:0.07em;
+                text-transform:uppercase;color:rgba(196,181,253,0.6);
+                margin-bottom:6px;">🔔 Notifications</div>
+    """, unsafe_allow_html=True)
+    # Button asks the browser for push-notification permission
+    if st.button("Enable Notifications", use_container_width=True, key="notif_perm_btn"):
+        import streamlit.components.v1 as _sc
+        _sc.html("""
+<script>
+(function() {
+  var par = window.parent;
+  if (!('Notification' in par)) {
+    alert('This browser does not support desktop notifications.');
+    return;
+  }
+  if (par.Notification.permission === 'granted') {
+    new par.Notification('🎬 Ranking Tool', {
+      body: 'Notifications are already enabled!',
+      icon: '/app/static/icon-192.png',
+    });
+  } else if (par.Notification.permission !== 'denied') {
+    par.Notification.requestPermission().then(function(perm) {
+      if (perm === 'granted') {
+        new par.Notification('🎬 Ranking Tool', {
+          body: 'Notifications enabled! You\\'ll be alerted when your video is ready.',
+          icon: '/app/static/icon-192.png',
+        });
+      }
+    });
+  } else {
+    alert('Notifications are blocked. Please enable them in your browser settings for this site.');
+  }
+})();
+</script>
+""", height=0)
+    st.caption("Tap to allow alerts when video generation finishes.")
+
+    # ── PWA install hint ────────────────────────────────────────────────────────
+    st.markdown("""
+    <div style="margin-top:8px;padding:8px 10px;
+                background:rgba(124,58,237,0.08);
+                border:1px solid rgba(167,139,250,0.15);
+                border-radius:10px;font-size:0.72rem;
+                color:rgba(196,181,253,0.65);line-height:1.5;">
+        📱 <strong style="color:rgba(196,181,253,0.85);">Add to Home Screen</strong><br>
+        iOS Safari: Share → Add to Home Screen<br>
+        Android Chrome: Menu → Add to Home Screen
+    </div>
+    """, unsafe_allow_html=True)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1730,8 +1860,9 @@ with right_col:
                     shutil.copy2(assembled, final_path)
 
                 _advance(100, "Done! 🎉")
-                st.session_state.output_video = final_path
-                st.session_state.processing   = False
+                st.session_state.output_video        = final_path
+                st.session_state.processing          = False
+                st.session_state.notification_pending = True   # fire on next render
                 st.rerun()   # reload so preview area shows the video
 
             except Exception as exc:
@@ -1747,6 +1878,57 @@ with right_col:
                 with st.expander("🔍 Full error details (share this when reporting)"):
                     st.code(_tb)
                 st.session_state.processing = False
+
+    # ── Completion notification (fires once on the render after generation) ──────
+    if st.session_state.get("notification_pending"):
+        st.session_state.notification_pending = False
+        import streamlit.components.v1 as _components
+        _components.html("""
+<script>
+(function() {
+  var par = window.parent;
+
+  // 1. Tab title flash (always works)
+  var orig = par.document.title;
+  var flashes = 0;
+  var iv = setInterval(function() {
+    flashes++;
+    par.document.title = (flashes % 2 === 0) ? '✅ Video Ready! 🎬' : orig;
+    if (flashes >= 12) { clearInterval(iv); par.document.title = orig; }
+  }, 700);
+
+  // 2. Subtle audio beep via Web Audio API
+  try {
+    var ctx = new (par.AudioContext || par.webkitAudioContext)();
+    [[880, 0, 0.12], [1108, 0.14, 0.12], [1320, 0.28, 0.18]].forEach(function(t) {
+      var osc = ctx.createOscillator();
+      var g   = ctx.createGain();
+      osc.connect(g); g.connect(ctx.destination);
+      osc.type = 'sine';
+      osc.frequency.value = t[0];
+      g.gain.setValueAtTime(0, ctx.currentTime + t[1]);
+      g.gain.linearRampToValueAtTime(0.25, ctx.currentTime + t[1] + 0.04);
+      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + t[1] + t[2]);
+      osc.start(ctx.currentTime + t[1]);
+      osc.stop(ctx.currentTime  + t[1] + t[2]);
+    });
+  } catch(e) {}
+
+  // 3. Browser push notification (requires granted permission)
+  try {
+    if ('Notification' in par && par.Notification.permission === 'granted') {
+      new par.Notification('🎬 Ranking Tool', {
+        body: 'Your video is ready to download!',
+        icon: '/app/static/icon-192.png',
+        badge: '/app/static/icon-192.png',
+        tag: 'ranking-done',
+        renotify: true,
+      });
+    }
+  } catch(e) {}
+})();
+</script>
+""", height=0)
 
     # ── Download button (shown below generate regardless of preview) ──────────
     if st.session_state.output_video:

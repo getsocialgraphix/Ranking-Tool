@@ -1,6 +1,7 @@
 [server]
-maxUploadSize   = 2000   # 2 GB — large enough for any local video clip
-maxMessageSize  = 2000   # 2 GB — allows downloading large generated videos
+maxUploadSize        = 2000   # 2 GB — large enough for any local video clip
+maxMessageSize       = 2000   # 2 GB — allows downloading large generated videos
+enableStaticServing  = true   # serves ./static/ at /app/static/
 
 [theme]
 base                = "dark"
