@@ -630,16 +630,14 @@ footer { visibility: hidden !important; height: 0 !important; }
 """, unsafe_allow_html=True)
 
 
-# ── PWA meta tags (injected into page — chrome treats link/meta in body fine) ─
+# ── PWA / app-feel meta tags ──────────────────────────────────────────────────
 st.markdown("""
-<link rel="manifest"          href="/app/static/manifest.json">
-<link rel="apple-touch-icon"  href="/app/static/icon-192.png">
-<meta name="theme-color"                    content="#7c3aed">
-<meta name="apple-mobile-web-app-capable"   content="yes">
-<meta name="apple-mobile-web-app-title"     content="Rank">
+<meta name="theme-color"                           content="#7c3aed">
+<meta name="apple-mobile-web-app-capable"          content="yes">
+<meta name="apple-mobile-web-app-title"            content="Rank">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="mobile-web-app-capable"         content="yes">
-<meta name="application-name"               content="Rank">
+<meta name="mobile-web-app-capable"                content="yes">
+<meta name="application-name"                      content="Rank">
 """, unsafe_allow_html=True)
 
 
@@ -834,14 +832,14 @@ with st.sidebar:
   if (par.Notification.permission === 'granted') {
     new par.Notification('🎬 Ranking Tool', {
       body: 'Notifications are already enabled!',
-      icon: '/app/static/icon-192.png',
+      icon: '/favicon.png',
     });
   } else if (par.Notification.permission !== 'denied') {
     par.Notification.requestPermission().then(function(perm) {
       if (perm === 'granted') {
         new par.Notification('🎬 Ranking Tool', {
           body: 'Notifications enabled! You\\'ll be alerted when your video is ready.',
-          icon: '/app/static/icon-192.png',
+          icon: '/favicon.png',
         });
       }
     });
@@ -2103,8 +2101,8 @@ with right_col:
     if ('Notification' in par && par.Notification.permission === 'granted') {
       new par.Notification('🎬 Ranking Tool', {
         body: 'Your video is ready to download!',
-        icon: '/app/static/icon-192.png',
-        badge: '/app/static/icon-192.png',
+        icon: '/favicon.png',
+        badge: '/favicon.png',
         tag: 'ranking-done',
         renotify: true,
       });
