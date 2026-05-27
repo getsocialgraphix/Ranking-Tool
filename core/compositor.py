@@ -699,6 +699,7 @@ def _simple_concat(
         "-f", "concat", "-safe", "0",
         "-i", list_path,
         "-c:v", "libx264", "-b:v", VIDEO_BITRATE, "-preset", FFMPEG_PRESET,
+        "-threads", "1",
         "-c:a", "aac", "-b:a", AUDIO_BITRATE,
         "-movflags", "+faststart",
         output_path,
@@ -719,6 +720,7 @@ def _simple_concat(
         + ["-filter_complex", fc,
            "-map", "[vout]", "-map", "[aout]",
            "-c:v", "libx264", "-b:v", VIDEO_BITRATE, "-preset", FFMPEG_PRESET,
+           "-threads", "1",
            "-c:a", "aac", output_path]
     )
     r3 = subprocess.run(cmd3, capture_output=True, text=True, timeout=900)
@@ -826,6 +828,14 @@ def assemble_video(
         return None
 
     crossfade = float(preset.get("crossfade_duration", 0.25))
+
+    # ── Memory guard: force stream-copy concat when voiceovers are present ────
+    # Combined clips (intro+footage) already have natural black-screen pauses.
+    # xfade re-encode of N combined clips uses ~350-400 MB FFmpeg; stream-copy ~50 MB.
+    _has_voiceovers = any(c.get("voiceover_path") for c in clip_data)
+    if _has_voiceovers and crossfade > 0:
+        _log("  ℹ️  Voiceover mode: stream-copy concat (no xfade) — conserving RAM…")
+        crossfade = 0.0   # triggers _simple_concat() path via crossfade < 0.05 guard
 
     # Play order : rank N plays first → rank 1 plays last (the grand reveal / climax)
     play_order    = sorted(clip_data, key=lambda c: c["rank"], reverse=True)

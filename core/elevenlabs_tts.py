@@ -8,6 +8,7 @@ Usage:
   path   = generate_voiceover(api_key, voice_id, "Hello!", "/tmp/out.mp3")
 """
 
+import gc
 import requests
 from pathlib import Path
 from typing import Optional
@@ -36,6 +37,9 @@ def list_voices(api_key: str) -> list[dict]:
             timeout=10,
         )
         r.raise_for_status()
+        data = r.json()
+        r.close()
+        del r
         voices = [
             {
                 "id":       v["voice_id"],
@@ -44,8 +48,10 @@ def list_voices(api_key: str) -> list[dict]:
                 # deliberately omit "labels" — can be a large nested dict
                 # that bloats session state and wastes RAM on Cloud
             }
-            for v in r.json().get("voices", [])
+            for v in data.get("voices", [])
         ]
+        del data
+        gc.collect()
         return sorted(voices, key=lambda v: v["name"].lower())
     except Exception:
         return []
