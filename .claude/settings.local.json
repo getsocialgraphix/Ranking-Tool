@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip --version)",
+      "Bash(py --version)",
+      "Bash(where python3 *)",
+      "Bash(where py *)",
+      "PowerShell(ffmpeg -version 2>&1)",
+      "Bash(grep -q '^Done$' C:/Users/Hi-teQ/AppData/Local/Temp/claude/C--Users-Hi-teQ-Documents-Ranking-Tool/3e05edc9-d48e-4824-97a4-c6bfd5c27894/tasks/b4t7zm40r.output)",
+      "mcp__Claude_in_Chrome__tabs_context_mcp",
+      "WebFetch(domain:ssstik.io)",
+      "WebSearch",
+      "Bash(dir /b \"C:\\\\Users\\\\Hi-teQ\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\*\")",
+      "Bash(dir /b \"C:\\\\Python*\")",
+      "Bash(dir /b \"C:\\\\Users\\\\Hi-teQ\\\\Documents\\\\Ranking Tool\\\\*.exe\")",
+      "Bash(dir /b /s python*.exe)",
+      "Bash(dir /b \"C:\\\\Users\\\\Hi-teQ\\\\AppData\\\\Local\\\\Programs\\\\\" 2>nul)",
+      "Bash(pip install *)",
+      "Bash(python -c \"from streamlit_sortables import sort_items; print\\('streamlit-sortables OK'\\)\")",
+      "Bash(python -c ' *)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('core/compositor.py', encoding='utf-8'\\).read\\(\\)\\); print\\('compositor OK'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('app.py', encoding='utf-8'\\).read\\(\\)\\); print\\('app.py OK'\\)\")",
+      "Bash(python -c \"import ast, pathlib; ast.parse\\(pathlib.Path\\('core/compositor.py'\\).read_text\\(encoding='utf-8'\\)\\); print\\('OK'\\)\")"
+    ]
+  }
+}

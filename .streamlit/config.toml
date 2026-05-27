@@ -1,0 +1,10 @@
+[server]
+maxUploadSize = 2000   # 2 GB — large enough for any local video clip
+
+[theme]
+base                = "dark"
+backgroundColor     = "#08080f"
+secondaryBackgroundColor = "#0d0d1a"
+primaryColor        = "#7c3aed"
+textColor           = "#e8e8f2"
+font                = "sans serif"
