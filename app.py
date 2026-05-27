@@ -15,6 +15,7 @@ import re
 import shutil
 import subprocess
 import sys
+import traceback
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -1667,6 +1668,21 @@ with right_col:
 
                 # Step 4: Render + assemble ────────────────────────────────────
                 _advance(22, "Rendering ranking overlays and assembling…")
+
+                # ── Pre-flight: log every clip's state so failures are visible ─
+                _log("  Clip validation:")
+                for _cd in clip_data:
+                    _p   = Path(_cd["path"])
+                    _ok  = "✓" if _p.exists() else "✗ FILE MISSING"
+                    _sz  = f"{_p.stat().st_size / 1e6:.1f} MB" if _p.exists() else "—"
+                    _log(
+                        f"    rank#{_cd['rank']} {_ok}  "
+                        f"{_cd['width']}×{_cd['height']}  "
+                        f"{_cd['duration']:.1f}s  {_sz}  {_p.name}"
+                    )
+                    if not _p.exists():
+                        _log(f"    ERROR: file not found → {_p}")
+
                 assembled_path = str(TEMP_DIR / f"assembled_{timestamp}.mp4")
                 word_colors    = st.session_state.title_word_colors or None
                 assembled = assemble_video(
@@ -1719,7 +1735,17 @@ with right_col:
                 st.rerun()   # reload so preview area shows the video
 
             except Exception as exc:
-                st.error(f"Pipeline error: {exc}")
+                _tb = traceback.format_exc()
+                # Write full traceback to persistent log so Monitor page shows it
+                try:
+                    ts = datetime.now().strftime("%H:%M:%S")
+                    with open(_LOG_FILE, "a", encoding="utf-8") as _ef:
+                        _ef.write(f"\n[{ts}] ❌ PIPELINE EXCEPTION:\n{_tb}\n")
+                except Exception:
+                    pass
+                st.error(f"❌ Pipeline error: {exc}")
+                with st.expander("🔍 Full error details (share this when reporting)"):
+                    st.code(_tb)
                 st.session_state.processing = False
 
     # ── Download button (shown below generate regardless of preview) ──────────

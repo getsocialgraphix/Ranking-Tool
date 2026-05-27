@@ -18,6 +18,7 @@ import glob
 import json
 import re
 import random
+import shutil
 import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -31,7 +32,25 @@ import yt_dlp
 from config import FFMPEG_BIN, FFPROBE_BIN, TEMP_DIR
 
 DOWNLOAD_DIR = TEMP_DIR / "downloaded"
-_FFMPEG_DIR  = str(Path(FFMPEG_BIN).parent)
+
+
+def _resolve_ffmpeg_dir() -> str:
+    """
+    Return the directory that contains the ffmpeg binary so yt-dlp can find it.
+
+    When FFMPEG_BIN is an absolute path (Windows custom install) use its parent.
+    When FFMPEG_BIN is just 'ffmpeg' (Linux/PATH fallback) locate the binary via
+    shutil.which() so yt-dlp gets a real directory instead of '.' (current dir),
+    which would cause yt-dlp post-processing to silently fail.
+    """
+    p = Path(FFMPEG_BIN)
+    if p.is_absolute() and p.parent != Path("."):
+        return str(p.parent)
+    found = shutil.which("ffmpeg")
+    return str(Path(found).parent) if found else ""
+
+
+_FFMPEG_DIR = _resolve_ffmpeg_dir()
 
 # ── User-agent strings ────────────────────────────────────────────────────────
 _UA_DESKTOP = (

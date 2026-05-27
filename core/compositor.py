@@ -463,7 +463,7 @@ def _probe_full(path: str) -> dict:
         "-show_format",    # container-level duration
         path,
     ]
-    r = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
     if r.returncode != 0:
         return {}
     data    = json.loads(r.stdout)
@@ -591,11 +591,15 @@ def _render_one_clip(
             cmd += ["-shortest"]
         cmd.append(output_path)
 
-    r = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
     if r.returncode != 0:
         if status_cb:
-            err_tail = (r.stderr or "no stderr output")[-800:]
-            status_cb(f"  ⚠ FFmpeg render error:\n{err_tail}")
+            err_tail = (r.stderr or "no stderr output")[-1200:]
+            status_cb(f"  ⚠ FFmpeg render error (exit {r.returncode}):\n{err_tail}")
+        return None
+    if not Path(output_path).exists() or Path(output_path).stat().st_size == 0:
+        if status_cb:
+            status_cb(f"  ⚠ FFmpeg produced empty/missing output: {output_path}")
         return None
     return output_path
 
@@ -845,6 +849,7 @@ def assemble_video(
 
     # ── Phase 1: Generate all overlay PNGs in parallel (pure Pillow / CPU) ──
     # Each overlay writes to a unique path so there are no file-write races.
+    # max_workers=2 keeps memory pressure low on constrained cloud instances.
     _log("  Generating overlay frames…")
     overlay_paths: list[str] = [""] * n
 
@@ -858,9 +863,14 @@ def assemble_video(
         )
         return play_idx, path
 
-    with ThreadPoolExecutor(max_workers=min(n, 4)) as _pool:
-        for _idx, _path in _pool.map(lambda i: _make_overlay(i), range(n)):
-            overlay_paths[_idx] = _path
+    with ThreadPoolExecutor(max_workers=min(n, 2)) as _pool:
+        futures = {_pool.submit(_make_overlay, i): i for i in range(n)}
+        for fut in as_completed(futures):
+            try:
+                _idx, _path = fut.result()
+                overlay_paths[_idx] = _path
+            except Exception as _ov_exc:
+                _log(f"  ⚠ Overlay generation failed for slot {futures[fut]}: {_ov_exc}")
 
     # ── Phase 2: Render each clip sequentially (FFmpeg — Streamlit log-safe) ─
     # rendered and durations are built together so black intros are included.
