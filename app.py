@@ -45,7 +45,10 @@ except Exception:
 # Generates icon-192.png / icon-512.png in ./static/ on first run.
 # Uses the bundled Montserrat-Black font if available, falls back to default.
 _STATIC_DIR = Path(__file__).parent / "static"
-_STATIC_DIR.mkdir(exist_ok=True)
+try:
+    _STATIC_DIR.mkdir(exist_ok=True)
+except Exception:
+    pass  # static/ already exists or filesystem is read-only — harmless
 
 def _generate_pwa_icons() -> None:
     try:
@@ -774,7 +777,7 @@ with st.sidebar:
   }
 })();
 </script>
-""", height=0)
+""", height=1)
     st.caption("Tap to allow alerts when video generation finishes.")
 
     # ── PWA install hint ────────────────────────────────────────────────────────
@@ -1452,7 +1455,7 @@ with left_col:
                     st.session_state.el_style      = st.slider("Style exaggeration", 0.0, 1.0, st.session_state.el_style,      0.05, key="el_sty")
 
                 st.divider()
-                st.session_state.el_auto_commentary = st.toggle(
+                st.session_state.el_auto_commentary = st.checkbox(
                     "🤖 Auto-generate commentary",
                     value=st.session_state.get("el_auto_commentary", True),
                     key="el_auto_tog",
@@ -1998,7 +2001,7 @@ with right_col:
   } catch(e) {}
 })();
 </script>
-""", height=0)
+""", height=1)
 
     # ── Download button (shown below generate regardless of preview) ──────────
     if st.session_state.output_video:

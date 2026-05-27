@@ -40,7 +40,7 @@ st.set_page_config(
 try:
     import psutil
     _HAS_PSUTIL = True
-except ImportError:
+except Exception:
     _HAS_PSUTIL = False
 
 # ═══════════════════════════════════════════════════════════════════════════════
