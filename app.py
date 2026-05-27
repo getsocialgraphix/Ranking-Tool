@@ -1458,8 +1458,8 @@ with left_col:
                     key="el_auto_tog",
                     help=(
                         "When ON: clips with no commentary text automatically get a "
-                        "narrator line based on their rank (e.g. "Coming in at number 5… "
-                        "Clip Title!"). Custom text you type always takes priority."
+                        "narrator line based on their rank (e.g. 'Coming in at number 5... "
+                        "Clip Title!'). Custom text you type always takes priority."
                     ),
                 )
                 if st.session_state.el_auto_commentary:
@@ -1848,7 +1848,7 @@ with right_col:
                                 clip_title=c.get("title", ""),
                                 video_title=_vtitle,
                             )
-                            _log(f"  🤖 Auto-commentary Rank #{c['rank']}: "{commentary}"")
+                            _log(f"  🤖 Auto-commentary Rank #{c['rank']}: '{commentary}'")
                         if commentary:
                             vo_path = str(TEMP_DIR / f"voiceover_{vo_i:02d}.mp3")
                             out_vo  = generate_voiceover(
