@@ -1,6 +1,5 @@
 streamlit>=1.35.0
 yt-dlp>=2024.4.9
-moviepy>=2.0.0
 Pillow>=10.3.0
 pydub>=0.25.1
 tqdm>=4.66.0

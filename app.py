@@ -32,10 +32,12 @@ from core.presets import delete_preset, list_presets, load_preset, save_preset
 from core.processor import trim_clip
 
 # Optional drag-and-drop component
+# Catch Exception (not just ImportError) — newer Streamlit versions can raise
+# AttributeError or other exceptions if the component ABI has changed.
 try:
     from streamlit_sortables import sort_items as _sort_items_fn
     _HAS_SORTABLES = True
-except ImportError:
+except Exception:
     _HAS_SORTABLES = False
 
 # ── Page config ────────────────────────────────────────────────────────────────
