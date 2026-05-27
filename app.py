@@ -1754,12 +1754,15 @@ with right_col:
         if out.exists():
             sz = out.stat().st_size / 1_048_576
             st.caption(f"`{out.name}`  ·  {sz:.1f} MB")
-            with open(out, "rb") as fh:
-                st.download_button(
-                    "⬇  Download MP4", data=fh,
-                    file_name=out.name, mime="video/mp4",
-                    use_container_width=True,
-                )
+            # Read bytes upfront — passing a file handle is unreliable because
+            # Streamlit may defer reading until after the handle is closed.
+            st.download_button(
+                "⬇  Download MP4",
+                data=out.read_bytes(),
+                file_name=out.name,
+                mime="video/mp4",
+                use_container_width=True,
+            )
             if st.button("🗑  Clear & start over", use_container_width=True):
                 st.session_state.output_video = None
                 for f in TEMP_DIR.rglob("*"):

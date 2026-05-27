@@ -1,5 +1,6 @@
 [server]
-maxUploadSize = 2000   # 2 GB — large enough for any local video clip
+maxUploadSize   = 2000   # 2 GB — large enough for any local video clip
+maxMessageSize  = 2000   # 2 GB — allows downloading large generated videos
 
 [theme]
 base                = "dark"
