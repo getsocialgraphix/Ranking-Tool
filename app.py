@@ -956,8 +956,12 @@ with left_col:
                 with st.expander("Edit details", expanded=False):
 
                     # ── Source ────────────────────────────────────────────────
+                    # Default to "📁 Upload" tab for bulk-uploaded (is_local) clips
+                    # so the user can immediately see which file is attached.
+                    _src_default = 1 if clip.get("is_local") else 0
                     mode = st.radio(
                         "Source", ["🔗 URL", "📁 Upload"],
+                        index=_src_default,
                         key=f"mode_{cid}", horizontal=True, label_visibility="collapsed",
                     )
                     if mode == "🔗 URL":
@@ -1480,6 +1484,42 @@ with right_col:
     else:
         st.write(f"**{len(valid_clips)}** clip(s) ready")
 
+        # ── Themed progress bar (sits ABOVE the button, hidden until generating) ─
+        _prog_status_ph = st.empty()   # step label + percentage
+        _prog_bar_ph    = st.empty()   # glass progress bar
+
+        def _render_progress(pct: int, msg: str) -> None:
+            """Render the glassmorphism progress bar above the Generate button."""
+            _prog_status_ph.markdown(
+                f"""
+                <div style="display:flex;justify-content:space-between;
+                            align-items:center;margin-bottom:6px;">
+                    <span style="font-size:0.82rem;font-weight:600;
+                                 color:rgba(196,181,253,0.95);">{msg}</span>
+                    <span style="font-size:0.78rem;font-weight:700;
+                                 color:rgba(167,139,250,0.8);
+                                 background:rgba(124,58,237,0.15);
+                                 padding:2px 10px;border-radius:999px;
+                                 border:1px solid rgba(124,58,237,0.3);">{pct}%</span>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            _prog_bar_ph.markdown(
+                f"""
+                <div style="background:rgba(255,255,255,0.05);
+                            border:1px solid rgba(167,139,250,0.2);
+                            border-radius:999px;height:8px;
+                            overflow:hidden;margin-bottom:14px;">
+                    <div style="width:{pct}%;height:100%;
+                                background:linear-gradient(90deg,#7c3aed,#6366f1,#06b6d4);
+                                border-radius:999px;
+                                transition:width 0.3s ease;"></div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
         generate_btn = st.button(
             "▶  Generate Video", type="primary",
             use_container_width=True,
@@ -1490,8 +1530,6 @@ with right_col:
             st.session_state.processing   = True
             st.session_state.output_video = None
 
-            status_box   = st.empty()
-            progress_bar = st.progress(0)
             log_area     = st.empty()
             log_lines: list[str] = []
 
@@ -1500,8 +1538,7 @@ with right_col:
                 log_area.code("\n".join(log_lines[-18:]))
 
             def _advance(pct: int, msg: str) -> None:
-                progress_bar.progress(pct)
-                status_box.info(f"**{msg}**")
+                _render_progress(pct, msg)
                 _log(msg)
 
             try:
