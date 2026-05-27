@@ -1405,73 +1405,103 @@ with left_col:
                 st.caption("No music loaded.")
 
         with st.expander("🎙️ ElevenLabs Voiceovers"):
-            st.caption(
-                "Connect your ElevenLabs API key and a voice — "
-                "narrator lines are auto-generated for each rank position. "
-                "Override per clip using the commentary field in the Clips tab."
-            )
-            el_key = st.text_input(
-                "API Key", value=st.session_state.el_api_key,
-                type="password", placeholder="sk-…", key="el_api_input",
-            )
-            if el_key != st.session_state.el_api_key:
-                st.session_state.el_api_key  = el_key
-                st.session_state.el_voices   = []
-                st.session_state.el_voice_id = ""
-
-            _ec1, _ec2 = st.columns([2, 1])
-            with _ec2:
-                if st.button("🔌 Load voices", use_container_width=True) and el_key:
-                    with st.spinner("Connecting…"):
-                        voices = list_voices(el_key)
-                    if voices:
-                        st.session_state.el_voices = voices
-                        st.success(f"{len(voices)} voices loaded")
-                    else:
-                        st.error("Could not load voices — check API key.")
-
-            if st.session_state.el_voices:
-                _vn  = [f"{v['name']}  [{v['category']}]" for v in st.session_state.el_voices]
-                _vid = [v["id"] for v in st.session_state.el_voices]
-                try:
-                    _cvi = _vid.index(st.session_state.el_voice_id)
-                except ValueError:
-                    _cvi = 0
-                _sv = st.selectbox("Voice", _vn, index=_cvi, key="el_voice_sel")
-                st.session_state.el_voice_id = _vid[_vn.index(_sv)]
-
-                _model_opts = {
-                    "Multilingual v2 (best)": "eleven_multilingual_v2",
-                    "Multilingual v1":        "eleven_multilingual_v1",
-                    "English v1":             "eleven_monolingual_v1",
-                    "Turbo v2 (fast)":        "eleven_turbo_v2",
-                }
-                _sm = st.selectbox("Model", list(_model_opts.keys()), key="el_model_sel")
-                st.session_state.el_model = _model_opts[_sm]
-
-                with st.expander("Voice settings"):
-                    st.session_state.el_stability  = st.slider("Stability",          0.0, 1.0, st.session_state.el_stability,  0.05, key="el_stab")
-                    st.session_state.el_similarity = st.slider("Similarity boost",   0.0, 1.0, st.session_state.el_similarity, 0.05, key="el_sim")
-                    st.session_state.el_style      = st.slider("Style exaggeration", 0.0, 1.0, st.session_state.el_style,      0.05, key="el_sty")
-
-                st.divider()
-                st.session_state.el_auto_commentary = st.checkbox(
-                    "🤖 Auto-generate commentary",
-                    value=st.session_state.get("el_auto_commentary", True),
-                    key="el_auto_tog",
-                    help=(
-                        "When ON: clips with no commentary text automatically get a "
-                        "narrator line based on their rank (e.g. 'Coming in at number 5... "
-                        "Clip Title!'). Custom text you type always takes priority."
-                    ),
+            try:
+                st.caption(
+                    "Connect your ElevenLabs API key and a voice -- "
+                    "narrator lines are auto-generated for each rank position. "
+                    "Override per clip using the commentary field in the Clips tab."
                 )
-                if st.session_state.el_auto_commentary:
-                    st.caption(
-                        "📢 Narrator lines are auto-written from rank + clip title. "
-                        "Type custom text in each clip card to override."
+                el_key = st.text_input(
+                    "API Key", value=st.session_state.el_api_key,
+                    type="password", placeholder="sk-...", key="el_api_input",
+                )
+                if el_key != st.session_state.el_api_key:
+                    st.session_state.el_api_key  = el_key
+                    st.session_state.el_voices   = []
+                    st.session_state.el_voice_id = ""
+
+                _ec1, _ec2 = st.columns([2, 1])
+                with _ec2:
+                    if st.button("🔌 Load voices", use_container_width=True) and el_key:
+                        with st.spinner("Connecting..."):
+                            voices = list_voices(el_key)
+                        if voices:
+                            st.session_state.el_voices   = voices
+                            st.session_state.el_voice_id = voices[0]["id"]
+                            st.success(f"{len(voices)} voices loaded")
+                        else:
+                            st.error("Could not load voices -- check API key.")
+
+                if st.session_state.el_voices:
+                    _vn  = [f"{v['name']}  [{v['category']}]" for v in st.session_state.el_voices]
+                    _vid = [v["id"] for v in st.session_state.el_voices]
+                    try:
+                        _cvi = _vid.index(st.session_state.el_voice_id)
+                    except ValueError:
+                        _cvi = 0
+                    _sv = st.selectbox("Voice", _vn, index=_cvi, key="el_voice_sel")
+                    st.session_state.el_voice_id = _vid[_vn.index(_sv)]
+
+                    _model_opts = {
+                        "Multilingual v2 (best)": "eleven_multilingual_v2",
+                        "Multilingual v1":        "eleven_multilingual_v1",
+                        "English v1":             "eleven_monolingual_v1",
+                        "Turbo v2 (fast)":        "eleven_turbo_v2",
+                    }
+                    _cur_model_key = next(
+                        (k for k, v in _model_opts.items()
+                         if v == st.session_state.get("el_model", "eleven_multilingual_v2")),
+                        "Multilingual v2 (best)",
                     )
-            else:
-                st.info("Enter API key and click **Load voices**.")
+                    _sm = st.selectbox(
+                        "Model", list(_model_opts.keys()),
+                        index=list(_model_opts.keys()).index(_cur_model_key),
+                        key="el_model_sel",
+                    )
+                    st.session_state.el_model = _model_opts[_sm]
+
+                    with st.expander("Voice settings"):
+                        st.session_state.el_stability = st.slider(
+                            "Stability", 0.0, 1.0,
+                            float(st.session_state.get("el_stability", 0.5)),
+                            0.05, key="el_stab",
+                        )
+                        st.session_state.el_similarity = st.slider(
+                            "Similarity boost", 0.0, 1.0,
+                            float(st.session_state.get("el_similarity", 0.75)),
+                            0.05, key="el_sim",
+                        )
+                        st.session_state.el_style = st.slider(
+                            "Style exaggeration", 0.0, 1.0,
+                            float(st.session_state.get("el_style", 0.0)),
+                            0.05, key="el_sty",
+                        )
+
+                    st.divider()
+                    _auto_val = bool(st.session_state.get("el_auto_commentary", True))
+                    st.session_state.el_auto_commentary = st.checkbox(
+                        "🤖 Auto-generate commentary",
+                        value=_auto_val,
+                        key="el_auto_tog",
+                        help=(
+                            "When ON: clips with no commentary text automatically get a "
+                            "narrator line based on their rank (e.g. 'Coming in at number 5"
+                            "... Clip Title!'). Custom text you type always takes priority."
+                        ),
+                    )
+                    if st.session_state.el_auto_commentary:
+                        st.caption(
+                            "Narrator lines are auto-written from rank + clip title. "
+                            "Type custom text in each clip card to override."
+                        )
+                else:
+                    st.info("Enter API key and click **Load voices**.")
+
+            except Exception as _el_err:
+                st.error(f"ElevenLabs section error: {_el_err}")
+                with st.expander("Error details"):
+                    import traceback as _tb
+                    st.code(_tb.format_exc())
 
         with st.expander("💥 Sound Effects"):
             st.caption("Upload a clip and set the second it plays in the final video.")
