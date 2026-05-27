@@ -114,7 +114,7 @@ DEFAULT_PRESET: dict = {
 
         # Top banner (video title text)
         "banner_enabled":       True,
-        "banner_bg_alpha":      150,    # 0–255
+        "banner_bg_alpha":      255,    # 0–255  (255 = fully opaque)
         "banner_bg_height":     0,      # 0 = auto-fit to text; >0 = fixed px height
         "banner_font":          "auto",
         "banner_size":          48,

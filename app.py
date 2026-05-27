@@ -631,6 +631,8 @@ _SS_DEFAULTS: dict = {
     "el_model":          "eleven_multilingual_v2",
     "sfx_list":          [],
     "music_path":        None,
+    # Auto-commentary: generate voiceover scripts from rank when commentary is blank
+    "el_auto_commentary": True,
     # PWA notification — set True after generation, cleared after firing
     "notification_pending": False,
 }
@@ -792,6 +794,40 @@ with st.sidebar:
 # ═══════════════════════════════════════════════════════════════════════════════
 #  Helpers
 # ═══════════════════════════════════════════════════════════════════════════════
+
+def _auto_commentary(rank: int, n_total: int,
+                     clip_title: str = "", video_title: str = "") -> str:
+    """
+    Build a natural-sounding narrator line for a ranking position.
+
+    Called when a clip has no custom commentary but ElevenLabs is configured
+    and auto-commentary is enabled.  The output mirrors the countdown style
+    that characterises viral ranking videos: highest rank first (suspense),
+    #1 last (grand reveal).
+
+    Examples
+    --------
+    rank=5, n_total=5, title="Spider-Man NWH"
+        → "Coming in at number 5... Spider-Man No Way Home!"
+    rank=2, title=""
+        → "Coming in at number 2!"
+    rank=1, title="Avengers Endgame"
+        → "And the number 1 is... Avengers Endgame!"
+    """
+    t = clip_title.strip()
+    title_part = f"... {t}!" if t else "!"
+
+    if rank == 1:
+        if t:
+            return f"And the number 1 is... {t}!"
+        return "And the number 1!"
+    elif rank == 2:
+        return f"Coming in at number 2{title_part}"
+    elif rank == 3:
+        return f"At number 3{title_part}"
+    else:
+        return f"Coming in at number {rank}{title_part}"
+
 
 @st.cache_data(show_spinner=False)
 def _cached_fonts() -> dict:
@@ -1366,7 +1402,11 @@ with left_col:
                 st.caption("No music loaded.")
 
         with st.expander("🎙️ ElevenLabs Voiceovers"):
-            st.caption("Add commentary to clips (Clips tab). Connect ElevenLabs here.")
+            st.caption(
+                "Connect your ElevenLabs API key and a voice — "
+                "narrator lines are auto-generated for each rank position. "
+                "Override per clip using the commentary field in the Clips tab."
+            )
             el_key = st.text_input(
                 "API Key", value=st.session_state.el_api_key,
                 type="password", placeholder="sk-…", key="el_api_input",
@@ -1410,6 +1450,23 @@ with left_col:
                     st.session_state.el_stability  = st.slider("Stability",          0.0, 1.0, st.session_state.el_stability,  0.05, key="el_stab")
                     st.session_state.el_similarity = st.slider("Similarity boost",   0.0, 1.0, st.session_state.el_similarity, 0.05, key="el_sim")
                     st.session_state.el_style      = st.slider("Style exaggeration", 0.0, 1.0, st.session_state.el_style,      0.05, key="el_sty")
+
+                st.divider()
+                st.session_state.el_auto_commentary = st.toggle(
+                    "🤖 Auto-generate commentary",
+                    value=st.session_state.get("el_auto_commentary", True),
+                    key="el_auto_tog",
+                    help=(
+                        "When ON: clips with no commentary text automatically get a "
+                        "narrator line based on their rank (e.g. "Coming in at number 5… "
+                        "Clip Title!"). Custom text you type always takes priority."
+                    ),
+                )
+                if st.session_state.el_auto_commentary:
+                    st.caption(
+                        "📢 Narrator lines are auto-written from rank + clip title. "
+                        "Type custom text in each clip card to override."
+                    )
             else:
                 st.info("Enter API key and click **Load voices**.")
 
@@ -1776,9 +1833,22 @@ with right_col:
 
                 if el_key and el_vid:
                     _advance(17, "Generating ElevenLabs voiceovers…")
+                    _auto_on  = st.session_state.get("el_auto_commentary", True)
+                    _n_clips  = len(clip_data)
+                    _vtitle   = st.session_state.get("video_title", "").strip()
+                    # Countdown order: highest rank first (suspense), rank 1 last
                     _sft = sorted(clip_data, key=lambda c: c["rank"], reverse=True)
                     for vo_i, c in enumerate(_sft):
                         commentary = c.get("commentary", "").strip()
+                        # Auto-generate a narrator line when commentary is blank
+                        if not commentary and _auto_on:
+                            commentary = _auto_commentary(
+                                rank=c["rank"],
+                                n_total=_n_clips,
+                                clip_title=c.get("title", ""),
+                                video_title=_vtitle,
+                            )
+                            _log(f"  🤖 Auto-commentary Rank #{c['rank']}: "{commentary}"")
                         if commentary:
                             vo_path = str(TEMP_DIR / f"voiceover_{vo_i:02d}.mp3")
                             out_vo  = generate_voiceover(

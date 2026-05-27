@@ -178,7 +178,7 @@ def _default_style() -> dict:
         "title_stroke_color":   "#000000",
         "title_gap":            6,
         "banner_enabled":       True,
-        "banner_bg_alpha":      150,
+        "banner_bg_alpha":      255,
         "banner_font":          "auto",
         "banner_size":          48,
         "banner_color":         "#FFFFFF",
