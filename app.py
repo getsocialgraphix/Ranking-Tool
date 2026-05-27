@@ -9,6 +9,7 @@ RIGHT (plain) → 👁 Preview (top)  +  🎬 Generate (bottom)
 Sidebar       → 💾 Presets  +  ⚙ Output settings
 """
 
+import gc
 import io
 import json
 import re
@@ -736,13 +737,12 @@ except Exception as _ss_err:
 
 
 # ── Dependency check ──────────────────────────────────────────────────────────
-# Cache for 5 minutes so we don't spawn two ffmpeg subprocesses on every
-# single Streamlit rerun (every widget interaction triggers a rerun).
-@st.cache_data(ttl=300, show_spinner=False)
-def _cached_setup_check() -> list:
-    return setup_check()
+# Run setup_check() exactly once per session (stored in session state so the
+# two subprocess.run(ffmpeg -version) calls are not repeated on every rerun).
+if "_setup_issues" not in st.session_state:
+    st.session_state["_setup_issues"] = setup_check()
 
-_issues = _cached_setup_check()
+_issues = st.session_state["_setup_issues"]
 if _issues:
     for _i in _issues:
         st.error(_i)
@@ -1983,6 +1983,10 @@ with right_col:
                             else:
                                 _log(f"  ⚠ Voiceover for Rank #{c['rank']} failed")
 
+                # Free memory from voiceover generation before the heavy
+                # FFmpeg assembly phase (helps stay under 1 GB on Cloud).
+                gc.collect()
+
                 # Step 4: Render + assemble ────────────────────────────────────
                 _advance(22, "Rendering ranking overlays and assembling…")
 
@@ -2014,6 +2018,8 @@ with right_col:
                     st.error("Assembly failed — check the log above for FFmpeg error details.")
                     st.session_state.processing = False
                     st.stop()
+
+                gc.collect()   # release assembly temporaries before audio mix
 
                 # Step 5: Mix SFX (voiceovers are now baked into black intros) ──
                 # ElevenLabs voiceovers are embedded as black-screen clips by the

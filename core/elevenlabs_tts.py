@@ -118,10 +118,13 @@ def generate_voiceover(
         )
         r.raise_for_status()
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, "wb") as _f:  # write in 32 KB chunks
-            for _chunk in r.iter_content(chunk_size=32_768):
-                if _chunk:
-                    _f.write(_chunk)
+        try:
+            with open(output_path, "wb") as _f:  # write in 32 KB chunks
+                for _chunk in r.iter_content(chunk_size=32_768):
+                    if _chunk:
+                        _f.write(_chunk)
+        finally:
+            r.close()                       # always release the TCP connection
         return output_path
     except Exception:
         return None
