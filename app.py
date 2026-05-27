@@ -837,6 +837,13 @@ def _cached_fonts() -> dict:
     return list_fonts()
 
 
+@st.cache_data(show_spinner=False, max_entries=1)
+def _cached_video_bytes(path: str, mtime: float) -> bytes:
+    """Return video file bytes, cached by (path, mtime) so the file is only
+    read once per generated video even across many page rerenders."""
+    return Path(path).read_bytes()
+
+
 @st.cache_data(show_spinner=False, max_entries=40, ttl=300)
 def _cached_preview_frame(
     clips_json:  str,
@@ -1985,8 +1992,9 @@ with right_col:
     # ── Completion notification (fires once on the render after generation) ──────
     if st.session_state.get("notification_pending"):
         st.session_state.notification_pending = False
-        import streamlit.components.v1 as _components
-        _components.html("""
+        try:
+            import streamlit.components.v1 as _components
+            _components.html("""
 <script>
 (function() {
   var par = window.parent;
@@ -2032,6 +2040,8 @@ with right_col:
 })();
 </script>
 """, height=1)
+        except Exception:
+            pass  # Notification is best-effort; never crash the page over it
 
     # ── Download button (shown below generate regardless of preview) ──────────
     if st.session_state.output_video:
@@ -2039,15 +2049,19 @@ with right_col:
         if out.exists():
             sz = out.stat().st_size / 1_048_576
             st.caption(f"`{out.name}`  ·  {sz:.1f} MB")
-            # Read bytes upfront — passing a file handle is unreliable because
-            # Streamlit may defer reading until after the handle is closed.
-            st.download_button(
-                "⬇  Download MP4",
-                data=out.read_bytes(),
-                file_name=out.name,
-                mime="video/mp4",
-                use_container_width=True,
-            )
+            try:
+                # Use cached bytes so large files are not re-read on every
+                # rerender (e.g. when the user types the ElevenLabs API key).
+                _vbytes = _cached_video_bytes(str(out), out.stat().st_mtime)
+                st.download_button(
+                    "⬇  Download MP4",
+                    data=_vbytes,
+                    file_name=out.name,
+                    mime="video/mp4",
+                    use_container_width=True,
+                )
+            except Exception as _dl_err:
+                st.error(f"Could not prepare download: {_dl_err}")
             if st.button("🗑  Clear & start over", use_container_width=True):
                 st.session_state.output_video = None
                 for f in TEMP_DIR.rglob("*"):
