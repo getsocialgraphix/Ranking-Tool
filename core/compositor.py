@@ -569,21 +569,26 @@ def _render_one_clip(
     ]
 
     if has_audio:
+        # Append audio loudnorm to the filter_complex so clip audio is normalised
+        # to the same target level as ElevenLabs voiceovers (-14 LUFS).
+        # This prevents the jarring level jump (voiceover → very loud clip audio)
+        # that users perceive as "audio conflict".
+        vf_a = vf + ";[0:a]loudnorm=I=-14:LRA=11:TP=-1.5[a_out]"
         cmd = [
             FFMPEG_BIN, "-y",
             "-i", path, "-i", overlay_png,
-            "-filter_complex", vf,
-            "-map", "[out]", "-map", "0:a:0",
+            "-filter_complex", vf_a,
+            "-map", "[out]", "-map", "[a_out]",
             *_enc,
             output_path,
         ]
     else:
-        # No audio in source — synthesise a silent track.
+        # No audio in source — synthesise a silent track at 48 kHz stereo.
         # Use explicit -t to end reliably instead of relying on -shortest.
         cmd = [
             FFMPEG_BIN, "-y",
             "-i", path, "-i", overlay_png,
-            "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
+            "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo",
             "-filter_complex", vf,
             "-map", "[out]", "-map", "2:a",
             *_enc,
