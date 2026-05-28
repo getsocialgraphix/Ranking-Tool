@@ -92,12 +92,22 @@ def add_audio_overlays(
     if len(base) < target_ms:
         base = base + AudioSegment.silent(duration=target_ms - len(base))
 
-    # Mix voiceovers (at -3 dB so they sit under the original audio)
+    # Mix voiceovers: duck original audio by -18 dB during voiceover window
+    # so the narrator is always clearly heard, then overlay at full volume.
     for vo in (voiceovers or []):
         try:
-            seg  = AudioSegment.from_file(vo["path"])
-            seg  = seg.apply_gain(-3)
-            base = base.overlay(seg, position=int(vo.get("start_ms", 0)))
+            seg      = AudioSegment.from_file(vo["path"])
+            start_ms = int(vo.get("start_ms", 0))
+            vo_len   = len(seg)
+            # Duck the original clip audio during the voiceover window
+            if start_ms < len(base):
+                duck_end = min(start_ms + vo_len, len(base))
+                before   = base[:start_ms]
+                during   = base[start_ms:duck_end].apply_gain(-18)
+                after    = base[duck_end:]
+                base     = before + during + after
+            # Overlay voiceover at full volume (narrator clearly audible)
+            base = base.overlay(seg, position=start_ms)
         except Exception:
             pass
 

@@ -2125,20 +2125,27 @@ with right_col:
 
                 gc.collect()   # release assembly temporaries before audio mix
 
-                # Step 5: Mix SFX (voiceovers are now baked into black intros) ──
-                # ElevenLabs voiceovers are embedded as black-screen clips by the
-                # compositor in Step 4 — no post-mix timing pass needed.
-                # Only sound effects still require the post-process overlay step.
+                # Step 5: Overlay voiceovers + SFX ────────────────────────────
+                # Build voiceover list from timings_ms set by assemble_video.
+                # Play order is rank-descending (rank N first → rank 1 last).
+                _play_order = sorted(clip_data, key=lambda c: c["rank"], reverse=True)
+                _timings_ms = getattr(assemble_video, "timings_ms", [])
+                vo_list = [
+                    {"path": c["voiceover_path"], "start_ms": _timings_ms[i]}
+                    for i, c in enumerate(_play_order)
+                    if c.get("voiceover_path") and Path(c["voiceover_path"]).exists()
+                    and i < len(_timings_ms)
+                ]
                 sfx_raw = st.session_state.get("sfx_list", [])
                 sfx_ms  = [
                     {"path": s["path"], "start_ms": int(s["start_s"] * 1000),
                      "volume_db": s.get("volume_db", 0)}
                     for s in sfx_raw if s.get("path") and Path(s["path"]).exists()
                 ]
-                if sfx_ms:
-                    _advance(75, "Mixing sound effects…")
+                if vo_list or sfx_ms:
+                    _advance(75, "Overlaying voiceovers and sound effects…")
                     ov_path = str(TEMP_DIR / f"with_overlays_{timestamp}.mp4")
-                    result  = add_audio_overlays(assembled, ov_path, [], sfx_ms)
+                    result  = add_audio_overlays(assembled, ov_path, vo_list, sfx_ms)
                     if result:
                         assembled = result
 

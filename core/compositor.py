@@ -838,13 +838,8 @@ def assemble_video(
 
     crossfade = float(preset.get("crossfade_duration", 0.25))
 
-    # ── Memory guard: force stream-copy concat when voiceovers are present ────
-    # Combined clips (intro+footage) already have natural black-screen pauses.
-    # xfade re-encode of N combined clips uses ~350-400 MB FFmpeg; stream-copy ~50 MB.
-    _has_voiceovers = any(c.get("voiceover_path") for c in clip_data)
-    if _has_voiceovers and crossfade > 0:
-        _log("  ℹ️  Voiceover mode: stream-copy concat (no xfade) — conserving RAM…")
-        crossfade = 0.0   # triggers _simple_concat() path via crossfade < 0.05 guard
+    # Voiceovers are now overlaid on the finished video in a post-process step
+    # (in app.py, after assembly) — no black-screen intros, no concat complications.
 
     # Play order : rank N plays first → rank 1 plays last (the grand reveal / climax)
     play_order    = sorted(clip_data, key=lambda c: c["rank"], reverse=True)
@@ -896,10 +891,8 @@ def assemble_video(
                 _log(f"  ⚠ Overlay generation failed for slot {futures[fut]}: {_ov_exc}")
 
     # ── Phase 2: Render each clip sequentially (FFmpeg — Streamlit log-safe) ─
-    # When a voiceover black-intro exists, it is merged with the rendered clip
-    # via stream-copy BEFORE being added to `rendered`.  This keeps the final
-    # xfade concat down to N inputs (not 2N), halving FFmpeg's memory footprint
-    # on constrained cloud containers.
+    # Voiceovers are handled as a post-process overlay step in app.py after
+    # the full video is assembled — no black-screen intros here.
     rendered:  list[str]   = []
     durations: list[float] = []
 
@@ -907,7 +900,6 @@ def assemble_video(
         rank = clip["rank"]
         _log(f"  [{play_idx + 1}/{n}] Rank #{rank} — \"{clip.get('title', '')}\"")
 
-        # ── Render the actual clip first ──────────────────────────────────────
         out    = str(TEMP_DIR / f"rendered_{play_idx:02d}.mp4")
         result = _render_one_clip(
             clip, overlay_paths[play_idx], out,
@@ -920,40 +912,8 @@ def assemble_video(
         else:
             _log("         ✓")
 
-        # ── Optional black intro: merge (intro + clip) into ONE segment ───────
-        # Building a single combined segment (stream-copy) means the downstream
-        # xfade concat sees N inputs instead of 2N — roughly half the FFmpeg
-        # memory compared to feeding intros and clips separately.
-        vo_path = clip.get("voiceover_path", "")
-        if vo_path and Path(vo_path).exists():
-            _intro_out = str(TEMP_DIR / f"intro_{play_idx:02d}.mp4")
-            _log("         🎙 Building black intro (voiceover)…")
-            _intro = _create_black_intro(
-                vo_path, overlay_paths[play_idx], _intro_out,
-                crf=_render_crf, status_cb=_log,
-            )
-            if _intro:
-                _intro_dur = _probe_full(_intro).get("duration", 0.0)
-                _log(f"         🎙 Intro {_intro_dur:.1f}s ✓ — merging with clip…")
-                _combined_out = str(TEMP_DIR / f"combined_{play_idx:02d}.mp4")
-                _merged = _simple_concat([_intro, clip_out], _combined_out,
-                                         status_cb=_log)
-                if _merged:
-                    rendered.append(_merged)
-                    durations.append(max(0.1, _intro_dur) + clip_dur)
-                    _log("         🎙 Combined intro+clip ✓")
-                else:
-                    # Merge failed — fall back to clip only (voiceover lost)
-                    _log("         ⚠ Combine failed — using clip only")
-                    rendered.append(clip_out)
-                    durations.append(clip_dur)
-            else:
-                _log("         ⚠ Black intro failed — skipping (voiceover lost)")
-                rendered.append(clip_out)
-                durations.append(clip_dur)
-        else:
-            rendered.append(clip_out)
-            durations.append(clip_dur)
+        rendered.append(clip_out)
+        durations.append(clip_dur)
 
     _log("Concatenating clips…")
     return concatenate_with_xfade(
