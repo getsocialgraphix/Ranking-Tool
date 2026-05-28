@@ -1020,23 +1020,43 @@ def _cid_from_label(label: str) -> str | None:
 # ═══════════════════════════════════════════════════════════════════════════════
 st.markdown("""
 <style>
-/* ── Mobile settings pill ─────────────────────────────────────────────── */
+/* ── Mobile Settings pill + slide-in drawer ─────────────────────────── */
 .mob-settings-pill { display: none; margin-bottom: 10px; }
+
 @media (max-width: 768px) {
     .mob-settings-pill { display: block !important; }
-    /* Sidebar overlay: full-width sheet on mobile */
+
+    /* ① Park the sidebar off the RIGHT edge, ready to slide in */
     [data-testid="stSidebar"] {
-        min-width: 88vw !important;
-        max-width: 94vw !important;
+        position: fixed !important;
+        top: 0 !important; bottom: 0 !important;
+        right: 0 !important; left: auto !important;
+        width: 88vw !important;
+        max-width: 380px !important;
+        transform: translateX(110%) !important;
+        transition: transform 0.32s cubic-bezier(0.25,0.46,0.45,0.94) !important;
+        z-index: 9998 !important;
+        overflow-y: auto !important;
+        box-shadow: -6px 0 30px rgba(0,0,0,0.55) !important;
     }
-    /* Hide the tiny native sidebar arrow — our pill replaces it */
-    [data-testid="collapsedControl"] {
-        opacity: 0 !important;
-        pointer-events: none !important;
-        width: 0 !important;
+
+    /* ② Hide the native Streamlit collapse arrow */
+    [data-testid="collapsedControl"] { display: none !important; }
+
+    /* ③ Backdrop */
+    #mob-sb-bd {
+        display: none;
+        position: fixed; inset: 0;
+        background: rgba(0,0,0,0.52);
+        backdrop-filter: blur(3px);
+        -webkit-backdrop-filter: blur(3px);
+        z-index: 9997;
     }
+    #mob-sb-bd.on { display: block; }
 }
-.mob-settings-pill button {
+
+/* Pill button */
+.mob-settings-pill > button {
     width: 100%;
     display: flex;
     align-items: center;
@@ -1049,36 +1069,63 @@ st.markdown("""
     font-size: 0.93rem;
     font-weight: 700;
     cursor: pointer;
-    letter-spacing: -0.01em;
     -webkit-tap-highlight-color: transparent;
     transition: background 0.15s;
+    letter-spacing: -0.01em;
 }
-.mob-settings-pill button:active {
-    background: linear-gradient(135deg,rgba(124,58,237,0.38),rgba(79,70,229,0.28));
+.mob-settings-pill > button:active { background: rgba(124,58,237,0.38); }
+.mob-pill-sub {
+    font-size: 0.68rem; font-weight: 400;
+    color: rgba(196,181,253,0.6);
+    letter-spacing: 0.04em; text-transform: uppercase;
 }
-.mob-settings-pill .pill-sub {
-    font-size: 0.68rem;
-    font-weight: 400;
-    color: rgba(196,181,253,0.58);
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-}
-.mob-settings-pill .pill-arrow { font-size: 1.1rem; color: #a78bfa; }
+.mob-pill-arrow { font-size: 1.15rem; color: #a78bfa; }
 </style>
+
+<!-- dim backdrop — tap anywhere to close -->
+<div id="mob-sb-bd" onclick="mobSBClose()"></div>
+
 <div class="mob-settings-pill">
-  <button onclick="(function(){
-    /* Click Streamlit's native sidebar toggle (works even when opacity:0) */
-    var ctrl = document.querySelector('[data-testid=collapsedControl]');
-    if(ctrl){ ctrl.style.opacity='1'; ctrl.style.pointerEvents='auto';
-              ctrl.click();
-              setTimeout(function(){ ctrl.style.opacity='0';
-                                     ctrl.style.pointerEvents='none'; }, 200); }
-  })()">
+  <button onclick="mobSBOpen()">
     <span>⚙️&nbsp; Settings</span>
-    <span class="pill-sub">Presets &middot; Output &middot; Notifications</span>
-    <span class="pill-arrow">›</span>
+    <span class="mob-pill-sub">Presets &middot; Output &middot; Notifications</span>
+    <span class="mob-pill-arrow">›</span>
   </button>
 </div>
+
+<script>
+(function(){
+  /* ── state ── */
+  var OPEN = false;
+
+  function sb(){ return document.querySelector('[data-testid="stSidebar"]'); }
+  function bd(){ return document.getElementById('mob-sb-bd'); }
+
+  function _apply(){
+    var s = sb(), b = bd();
+    if(s) s.style.setProperty('transform', OPEN ? 'translateX(0)' : 'translateX(110%)', 'important');
+    if(b) { if(OPEN) b.classList.add('on'); else b.classList.remove('on'); }
+  }
+
+  window.mobSBOpen  = function(){ OPEN = true;  _apply(); try{ sessionStorage.setItem('_mobSB','1');   }catch(e){} };
+  window.mobSBClose = function(){ OPEN = false; _apply(); try{ sessionStorage.removeItem('_mobSB');     }catch(e){} };
+
+  /* Restore state after Streamlit reruns */
+  function restore(){
+    try{ if(sessionStorage.getItem('_mobSB')){ OPEN=true; _apply(); } }catch(e){}
+  }
+  /* Wait until the sidebar element is actually in the DOM */
+  function waitAndRestore(tries){
+    if(sb()){ restore(); return; }
+    if(tries > 0) setTimeout(function(){ waitAndRestore(tries-1); }, 150);
+  }
+  if(document.readyState==='loading'){
+    document.addEventListener('DOMContentLoaded', function(){ waitAndRestore(12); });
+  } else {
+    waitAndRestore(12);
+  }
+})();
+</script>
 """, unsafe_allow_html=True)
 
 
