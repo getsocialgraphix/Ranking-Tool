@@ -142,10 +142,11 @@ def mix_audio_for_video(
     Returns output_path on success, None on failure.
     """
     if not music_path:
-        # No music — just normalise loudness; copy video stream verbatim
+        # No music — normalise loudness with slow dynaudnorm; copy video stream
         cmd = [
             FFMPEG_BIN, "-y", "-i", video_path,
-            "-af", "loudnorm=I=-14:LRA=11:TP=-1",
+            "-af", "dynaudnorm=f=500:g=15:r=0.9:p=0.95,"
+                   "acompressor=threshold=0.1:ratio=2:attack=20:release=300",
             "-c:v", "copy",
             "-c:a", "aac", "-b:a", AUDIO_BITRATE,
             output_path,
@@ -160,16 +161,15 @@ def mix_audio_for_video(
 
     # ── Attempt 1: sidechaincompress ducking (FFmpeg native, very fast) ──────
     # Filter graph:
-    #   [speech]      — gentle loudnorm pass (replaces dynaudnorm which could
-    #                   over-amplify voiceover silence between clips)
-    #   [music_prep]  — volume-limited, trimmed, fade-in/out
+    #   [speech]     — dynaudnorm with a very long window (f=500 frames ≈ 16 s)
+    #                  smooths level differences between voiceover and clip audio
+    #                  without fast pumping/glitching. acompressor catches peaks.
+    #   [music_prep] — volume-limited, trimmed, fade-in/out
     #   sidechaincompress ducks [music_prep] when [speech] is loud
     #   amix combines both streams
     filter_sc = (
-        # loudnorm for consistent target level; gentle compressor to prevent
-        # noise-floor amplification on quiet/noisy video clip segments
-        "[0:a]loudnorm=I=-16:LRA=11:TP=-1.5,"
-        "acompressor=threshold=0.06:ratio=3:attack=10:release=150:makeup=1[speech];"
+        "[0:a]dynaudnorm=f=500:g=15:r=0.9:p=0.95,"
+        "acompressor=threshold=0.1:ratio=2:attack=20:release=300[speech];"
         f"[1:a]volume={full_level:.6f},"
         f"atrim=0:{duration_s + 3.0:.3f},"
         "asetpts=PTS-STARTPTS,"
@@ -199,8 +199,8 @@ def mix_audio_for_video(
 
     # ── Attempt 2: simple amix without ducking (older FFmpeg builds) ─────────
     filter_simple = (
-        "[0:a]loudnorm=I=-16:LRA=11:TP=-1.5,"
-        "acompressor=threshold=0.06:ratio=3:attack=10:release=150:makeup=1[speech];"
+        "[0:a]dynaudnorm=f=500:g=15:r=0.9:p=0.95,"
+        "acompressor=threshold=0.1:ratio=2:attack=20:release=300[speech];"
         f"[1:a]volume={duck_level:.6f},"
         f"atrim=0:{duration_s + 3.0:.3f},"
         "asetpts=PTS-STARTPTS,"

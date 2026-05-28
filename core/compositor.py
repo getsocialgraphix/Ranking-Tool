@@ -569,16 +569,11 @@ def _render_one_clip(
     ]
 
     if has_audio:
-        # Append audio loudnorm to the filter_complex so clip audio is normalised
-        # to the same target level as ElevenLabs voiceovers (-14 LUFS).
-        # This prevents the jarring level jump (voiceover → very loud clip audio)
-        # that users perceive as "audio conflict".
-        vf_a = vf + ";[0:a]loudnorm=I=-14:LRA=11:TP=-1.5[a_out]"
         cmd = [
             FFMPEG_BIN, "-y",
             "-i", path, "-i", overlay_png,
-            "-filter_complex", vf_a,
-            "-map", "[out]", "-map", "[a_out]",
+            "-filter_complex", vf,
+            "-map", "[out]", "-map", "0:a:0",
             *_enc,
             output_path,
         ]
