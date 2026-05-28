@@ -1022,115 +1022,6 @@ def _cid_from_label(label: str) -> str | None:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  Mobile-only Settings pill  (opens the sidebar on small screens)
-# ═══════════════════════════════════════════════════════════════════════════════
-st.markdown("""
-<style>
-/* ── Mobile Settings pill + slide-in drawer ─────────────────────────── */
-.mob-settings-pill { display: none; margin-bottom: 10px; }
-
-@media (max-width: 768px) {
-    .mob-settings-pill { display: block !important; }
-    [data-testid="collapsedControl"] { display: none !important; }
-    #mob-sb-bd {
-        display: none; position: fixed; inset: 0;
-        background: rgba(0,0,0,0.55);
-        backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
-        z-index: 9998; -webkit-tap-highlight-color: transparent;
-    }
-    #mob-sb-bd.on { display: block !important; }
-}
-.mob-settings-pill > button {
-    width: 100%; display: flex; align-items: center;
-    justify-content: space-between; padding: 13px 16px;
-    background: linear-gradient(135deg,rgba(124,58,237,0.22),rgba(79,70,229,0.14));
-    border: 1.5px solid rgba(167,139,250,0.32); border-radius: 14px;
-    color: #e9d5ff; font-size: 0.93rem; font-weight: 700;
-    cursor: pointer; -webkit-tap-highlight-color: transparent;
-    transition: background 0.15s; letter-spacing: -0.01em;
-}
-.mob-settings-pill > button:active { background: rgba(124,58,237,0.42); }
-.mob-pill-sub { font-size:0.68rem; font-weight:400; color:rgba(196,181,253,0.6);
-                letter-spacing:0.04em; text-transform:uppercase; }
-.mob-pill-arrow { font-size:1.15rem; color:#a78bfa; }
-</style>
-
-<div id="mob-sb-bd"></div>
-
-<div class="mob-settings-pill">
-  <button id="mob-open-btn">
-    <span>⚙️&nbsp; Settings</span>
-    <span class="mob-pill-sub">Presets &middot; Output &middot; Notifications</span>
-    <span class="mob-pill-arrow">›</span>
-  </button>
-</div>
-
-<script>
-/* NOTE: Streamlit's HTML sanitiser strips onclick="..." attributes.
-   All click handlers are attached via addEventListener in this script. */
-(function(){
-  var OPEN = false;
-  var SK   = '_rtMobSB';
-
-  function getSB(){ return document.querySelector('section[data-testid="stSidebar"]') || document.querySelector('[data-testid="stSidebar"]'); }
-  function getBD(){ return document.getElementById('mob-sb-bd'); }
-
-  function sp(el,k,v){ el.style.setProperty(k,v,'important'); }
-
-  function doOpen(){
-    var s=getSB(), b=getBD();
-    if(s){
-      sp(s,'position','fixed');   sp(s,'top','0');        sp(s,'bottom','0');
-      sp(s,'right','0');          sp(s,'left','auto');    sp(s,'width','88vw');
-      sp(s,'max-width','390px');  sp(s,'z-index','99999');
-      sp(s,'display','block');    sp(s,'visibility','visible'); sp(s,'opacity','1');
-      sp(s,'overflow-y','auto');  sp(s,'overflow-x','hidden');
-      sp(s,'box-shadow','-8px 0 40px rgba(0,0,0,0.65)');
-      sp(s,'transition','transform 0.30s cubic-bezier(0.25,0.46,0.45,0.94)');
-      sp(s,'transform','translateX(0)');
-    }
-    if(b) b.classList.add('on');
-    OPEN=true; try{sessionStorage.setItem(SK,'1');}catch(e){}
-  }
-
-  function doClose(){
-    var s=getSB(), b=getBD();
-    if(s) sp(s,'transform','translateX(110%)');
-    if(b) b.classList.remove('on');
-    OPEN=false; try{sessionStorage.removeItem(SK);}catch(e){}
-  }
-
-  /* Expose globally so other scripts can call them if needed */
-  window.mobSBOpen  = doOpen;
-  window.mobSBClose = doClose;
-
-  /* Attach listeners (NOT onclick attrs — those get stripped by sanitiser) */
-  function attachAll(){
-    var ob = document.getElementById('mob-open-btn');
-    if(ob && !ob._mh){ ob.addEventListener('click', doOpen, {passive:false}); ob._mh=1; }
-    var bd = getBD();
-    if(bd && !bd._mh){ bd.addEventListener('click', doClose, {passive:false}); bd._mh=1; }
-  }
-
-  /* Restore open state after Streamlit rerenders */
-  function restoreIfNeeded(){
-    try{ if(sessionStorage.getItem(SK) && getSB()){ doOpen(); } }catch(e){}
-  }
-
-  function init(n){
-    attachAll();
-    restoreIfNeeded();
-    if(!getSB() && n>0) setTimeout(function(){ init(n-1); }, 200);
-  }
-
-  /* Small delay so Streamlit finishes rendering before we query the DOM */
-  setTimeout(function(){ init(25); }, 80);
-})();
-</script>
-""", unsafe_allow_html=True)
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
 #  Main 2-column layout
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -1145,7 +1036,7 @@ _upload_dir.mkdir(parents=True, exist_ok=True)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 with left_col:
-    tab_clips, tab_adv = st.tabs(["🎞 Clips", "⚙️ Advanced"])
+    tab_clips, tab_adv, tab_settings = st.tabs(["🎞 Clips", "⚙️ Advanced", "⚙ Settings"])
 
     # ══════════════════════════════════════════════════════════════════════════
     #  CLIPS TAB
@@ -1747,6 +1638,104 @@ with left_col:
                     st.rerun()
             else:
                 st.caption("No sound effects added yet.")
+
+    # ══════════════════════════════════════════════════════════════════════════
+    #  SETTINGS TAB  (mirrors sidebar — accessible on mobile)
+    # ══════════════════════════════════════════════════════════════════════════
+    with tab_settings:
+
+        with st.expander("💾 Presets", expanded=True):
+            _saved_t = list_presets()
+            _sel_t = st.selectbox(
+                "Load preset", ["(default)"] + _saved_t, key="preset_sel_tab",
+            )
+            _tpc1, _tpc2 = st.columns(2)
+            with _tpc1:
+                if _sel_t != "(default)" and st.button(
+                    "Load", use_container_width=True, key="preset_load_tab"
+                ):
+                    _p = load_preset(_sel_t)
+                    _p.setdefault("overlay_style", {})
+                    for _dk, _dv in DEFAULT_PRESET["overlay_style"].items():
+                        _p["overlay_style"].setdefault(_dk, _dv)
+                    _rp2 = _p["overlay_style"].setdefault("rank_prefixes", {})
+                    for _ri in range(1, 11):
+                        _rp2.setdefault(str(_ri), "")
+                    st.session_state.preset = _p
+                    st.success(f"Loaded: {_sel_t}")
+                    st.rerun()
+            with _tpc2:
+                if _sel_t != "(default)" and st.button(
+                    "Delete", use_container_width=True, type="secondary", key="preset_del_tab"
+                ):
+                    delete_preset(_sel_t)
+                    st.rerun()
+            _new_name_t = st.text_input(
+                "Save current as…", placeholder="my_style", key="preset_save_name_tab",
+            )
+            if st.button(
+                "💾 Save Preset", use_container_width=True, key="preset_save_btn_tab"
+            ) and _new_name_t.strip():
+                save_preset(_new_name_t.strip(), st.session_state.preset)
+                st.success(f"Saved: {_new_name_t.strip()}")
+                st.rerun()
+
+        with st.expander("⚙ Output settings"):
+            st.session_state.preset["crossfade_duration"] = st.slider(
+                "Crossfade (s)", 0.0, 1.0,
+                float(st.session_state.preset.get("crossfade_duration", 0.25)),
+                step=0.05, key="cf_slider_tab",
+            )
+
+        st.markdown("---")
+        st.markdown("""
+        <div style="font-size:0.72rem;font-weight:600;letter-spacing:0.07em;
+                    text-transform:uppercase;color:rgba(196,181,253,0.6);
+                    margin-bottom:6px;">🔔 Notifications</div>
+        """, unsafe_allow_html=True)
+        if st.button("Enable Notifications", use_container_width=True, key="notif_perm_btn_tab"):
+            import streamlit.components.v1 as _sc2
+            _sc2.html("""
+<script>
+(function() {
+  var par = window.parent;
+  if (!('Notification' in par)) {
+    alert('This browser does not support desktop notifications.');
+    return;
+  }
+  if (par.Notification.permission === 'granted') {
+    new par.Notification('🎬 Ranking Tool', {
+      body: 'Notifications are already enabled!',
+      icon: '/favicon.png',
+    });
+  } else if (par.Notification.permission !== 'denied') {
+    par.Notification.requestPermission().then(function(perm) {
+      if (perm === 'granted') {
+        new par.Notification('🎬 Ranking Tool', {
+          body: 'Notifications enabled! You\\'ll be alerted when your video is ready.',
+          icon: '/favicon.png',
+        });
+      }
+    });
+  } else {
+    alert('Notifications are blocked. Please enable them in your browser settings for this site.');
+  }
+})();
+</script>
+""", height=1)
+        st.caption("Tap to allow alerts when video generation finishes.")
+
+        st.markdown("""
+        <div style="margin-top:8px;padding:8px 10px;
+                    background:rgba(124,58,237,0.08);
+                    border:1px solid rgba(167,139,250,0.15);
+                    border-radius:10px;font-size:0.72rem;
+                    color:rgba(196,181,253,0.65);line-height:1.5;">
+            📱 <strong style="color:rgba(196,181,253,0.85);">Add to Home Screen</strong><br>
+            iOS Safari: Share → Add to Home Screen<br>
+            Android Chrome: Menu → Add to Home Screen
+        </div>
+        """, unsafe_allow_html=True)
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
