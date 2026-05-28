@@ -681,12 +681,18 @@ def _simple_concat(
 
     list_path = str(list_file)
 
-    # ── 1. Stream-copy (fastest — no re-encode) ────────────────────────────
+    # ── 1. Video stream-copy + audio re-encode ─────────────────────────────
+    # Full -c copy causes a silent gap (~21 ms) at every clip boundary because
+    # AAC has inherent encoder delay — the decoder needs ~1024 priming samples
+    # before it starts outputting audio.  Re-encoding audio removes the gap
+    # while still stream-copying video (fast, no quality loss on video).
     cmd_copy = [
         FFMPEG_BIN, "-y",
         "-f", "concat", "-safe", "0",
         "-i", list_path,
-        "-c", "copy",
+        "-c:v", "copy",
+        "-c:a", "aac", "-b:a", AUDIO_BITRATE,
+        "-ar", "48000", "-ac", "2",
         "-movflags", "+faststart",
         output_path,
     ]
@@ -771,7 +777,17 @@ def concatenate_with_xfade(
     for p in clip_paths:
         inputs += ["-i", p]
 
-    parts, cum, prev_v, prev_a = [], 0.0, "[0:v]", "[0:a]"
+    # Normalise every audio input to 48 kHz stereo and reset PTS to zero.
+    # acrossfade is sensitive to non-zero or inconsistent PTS values — without
+    # this step it can produce a brief chop/glitch at the crossfade point.
+    parts: list[str] = []
+    for k in range(n):
+        parts.append(
+            f"[{k}:a]aformat=sample_rates=48000:channel_layouts=stereo,"
+            f"asetpts=PTS-STARTPTS[an{k}]"
+        )
+
+    cum, prev_v, prev_a = 0.0, "[0:v]", "[an0]"
     for i in range(1, n):
         cum   += durations[i - 1] - crossfade
         last   = (i == n - 1)
@@ -781,7 +797,7 @@ def concatenate_with_xfade(
             f"{prev_v}[{i}:v]xfade=transition=fade"
             f":duration={crossfade:.4f}:offset={cum:.4f}{tag_v}"
         )
-        parts.append(f"{prev_a}[{i}:a]acrossfade=d={crossfade:.4f}{tag_a}")
+        parts.append(f"{prev_a}[an{i}]acrossfade=d={crossfade:.4f}{tag_a}")
         prev_v, prev_a = tag_v, tag_a
 
     cmd = (

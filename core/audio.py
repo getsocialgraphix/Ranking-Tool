@@ -1,18 +1,19 @@
 """
 Audio pipeline:
-  1. Mix ElevenLabs voiceovers and SFX into the assembled video (pydub overlay).
+  1. Mix ElevenLabs voiceovers and SFX into the assembled video via a single
+     FFmpeg filter_complex call (adelay + sidechaincompress).
   2. Add background music with sidechain ducking via a SINGLE FFmpeg call.
 
-Ducking is implemented with FFmpeg's native sidechaincompress filter — replacing
-the old pydub Python-loop approach which was 10–50× slower on long videos.
+Both steps use pure FFmpeg — no pydub — to avoid:
+  • Sub-sample rounding errors from pydub's ms-to-sample conversion
+  • Abrupt hard gain cuts at voiceover start/end boundaries (the "chop")
+  • Unnecessary 44100 Hz → 48000 Hz resampling artefacts
 """
 
 import json
 import subprocess
 from pathlib import Path
 from typing import Optional
-
-from pydub import AudioSegment
 
 from config import (
     AUDIO_BITRATE, FFMPEG_BIN, FFPROBE_BIN, MUSIC_DUCK_LEVEL, MUSIC_FULL_LEVEL,
@@ -33,34 +34,6 @@ def _probe_duration(path: str) -> float:
     return float(json.loads(r.stdout).get("format", {}).get("duration", 0.0))
 
 
-def _extract_audio(video_path: str) -> Optional[str]:
-    """Export audio from video as 44.1 kHz stereo WAV. Returns path or None."""
-    out = str(AUDIO_DIR / "clip_audio.wav")
-    cmd = [
-        FFMPEG_BIN, "-y", "-i", video_path,
-        "-vn", "-acodec", "pcm_s16le", "-ar", "48000", "-ac", "2",
-        out,
-    ]
-    r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-    return out if (r.returncode == 0 and Path(out).exists()) else None
-
-
-def _replace_audio(video_path: str, audio_wav: str, output_path: str) -> Optional[str]:
-    """Copy video stream verbatim, replace audio with audio_wav."""
-    cmd = [
-        FFMPEG_BIN, "-y",
-        "-i", video_path, "-i", audio_wav,
-        "-map", "0:v", "-map", "1:a",
-        "-c:v", "copy",
-        "-c:a", "aac", "-b:a", AUDIO_BITRATE,
-        "-ar", "48000", "-ac", "2",
-        "-shortest",
-        output_path,
-    ]
-    r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-    return output_path if r.returncode == 0 else None
-
-
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def add_audio_overlays(
@@ -70,61 +43,164 @@ def add_audio_overlays(
     sfx_list:    Optional[list[dict]] = None,
 ) -> Optional[str]:
     """
-    Mix ElevenLabs voiceovers and/or sound-effects into the video's audio track.
+    Mix ElevenLabs voiceovers and/or sound-effects into the video's audio track
+    using a single FFmpeg filter_complex — no pydub.
 
     voiceovers  — list of {"path": str, "start_ms": int}
     sfx_list    — list of {"path": str, "start_ms": int, "volume_db": float}
 
-    Returns output_path on success, original video_path if nothing to mix,
+    Filter graph
+    ────────────
+    1. aformat → normalise original video audio to 48 kHz stereo
+    2. aresample + aformat → normalise each overlay to 48 kHz stereo
+       (handles ElevenLabs 44.1 kHz MP3 natively, without pydub rounding)
+    3. adelay → position each overlay at its exact start_ms timestamp
+    4. sidechaincompress → voiceovers drive smooth ducking of clip audio
+       (attack=5 ms / release=150 ms — no hard gain cuts, no click artefacts)
+    5. amix → ducked clip audio + voiceovers + SFX → final track
+
+    Falls back to plain amix (no ducking) if sidechaincompress is unavailable
+    in the local FFmpeg build.
+
+    Returns output_path on success, original video_path if nothing to overlay,
     or None on FFmpeg error.
     """
-    if not voiceovers and not sfx_list:
+    valid_vos: list[dict] = [
+        v for v in (voiceovers or [])
+        if v.get("path") and Path(v["path"]).exists()
+    ]
+    valid_sfx: list[dict] = [
+        s for s in (sfx_list or [])
+        if s.get("path") and Path(s["path"]).exists()
+    ]
+    if not valid_vos and not valid_sfx:
         return video_path
 
-    duration_s = _probe_duration(video_path)
-    target_ms  = max(1000, int(duration_s * 1000))
+    n_vo  = len(valid_vos)
+    n_sfx = len(valid_sfx)
 
-    clip_wav = _extract_audio(video_path)
-    if clip_wav:
-        base = AudioSegment.from_file(clip_wav)
-    else:
-        base = AudioSegment.silent(duration=target_ms)
+    # ── Inputs ────────────────────────────────────────────────────────────────
+    # Input [0]           = original video (with audio)
+    # Inputs [1]..[n_vo]  = voiceover MP3/WAV files
+    # Inputs [n_vo+1]..   = SFX files
+    base_cmd: list[str] = [FFMPEG_BIN, "-y", "-i", video_path]
+    for vo in valid_vos:
+        base_cmd += ["-i", vo["path"]]
+    for sfx in valid_sfx:
+        base_cmd += ["-i", sfx["path"]]
 
-    if len(base) < target_ms:
-        base = base + AudioSegment.silent(duration=target_ms - len(base))
+    # ── Filter builder ────────────────────────────────────────────────────────
+    def _build_filter(with_sidechain: bool) -> str:
+        parts: list[str] = []
 
-    # Mix voiceovers: duck original audio by -18 dB during voiceover window
-    # so the narrator is always clearly heard, then overlay at full volume.
-    for vo in (voiceovers or []):
-        try:
-            seg      = AudioSegment.from_file(vo["path"])
-            start_ms = int(vo.get("start_ms", 0))
-            vo_len   = len(seg)
-            # Duck the original clip audio during the voiceover window
-            if start_ms < len(base):
-                duck_end = min(start_ms + vo_len, len(base))
-                before   = base[:start_ms]
-                during   = base[start_ms:duck_end].apply_gain(-18)
-                after    = base[duck_end:]
-                base     = before + during + after
-            # Overlay voiceover at full volume (narrator clearly audible)
-            base = base.overlay(seg, position=start_ms)
-        except Exception:
-            pass
+        # Normalise original video audio → 48 kHz stereo
+        parts.append(
+            "[0:a]aformat=sample_rates=48000:channel_layouts=stereo[vid_a]"
+        )
 
-    # Mix SFX
-    for sfx in (sfx_list or []):
-        try:
-            seg = AudioSegment.from_file(sfx["path"])
-            if sfx.get("volume_db", 0) != 0:
-                seg = seg.apply_gain(sfx["volume_db"])
-            base = base.overlay(seg, position=int(sfx.get("start_ms", 0)))
-        except Exception:
-            pass
+        # ── Voiceover inputs: resample → optional delay ───────────────────────
+        vo_tags: list[str] = []
+        for i, vo in enumerate(valid_vos):
+            tag      = f"vo{i}"
+            delay_ms = int(vo.get("start_ms", 0))
+            # aresample converts EL 44100 Hz to 48000 Hz (FFmpeg SWR, clean)
+            chain    = (
+                f"[{i + 1}:a]"
+                "aresample=48000,"
+                "aformat=sample_rates=48000:channel_layouts=stereo"
+            )
+            if delay_ms > 0:
+                # adelay inserts silence before audio — positions the narrator
+                # at the exact millisecond its clip starts in the assembled video
+                chain += f",adelay={delay_ms}|{delay_ms}"
+            chain += f"[{tag}]"
+            parts.append(chain)
+            vo_tags.append(tag)
 
-    mixed_wav = str(AUDIO_DIR / "overlays_mixed.wav")
-    base.export(mixed_wav, format="wav")
-    return _replace_audio(video_path, mixed_wav, output_path)
+        # ── SFX inputs: resample → optional gain → optional delay ─────────────
+        sfx_tags: list[str] = []
+        for j, sfx in enumerate(valid_sfx):
+            tag      = f"sfx{j}"
+            in_idx   = n_vo + j + 1
+            delay_ms = int(sfx.get("start_ms", 0))
+            vol_db   = float(sfx.get("volume_db", 0.0))
+            chain    = (
+                f"[{in_idx}:a]"
+                "aresample=48000,"
+                "aformat=sample_rates=48000:channel_layouts=stereo"
+            )
+            if vol_db != 0.0:
+                chain += f",volume={vol_db:.2f}dB"
+            if delay_ms > 0:
+                chain += f",adelay={delay_ms}|{delay_ms}"
+            chain += f"[{tag}]"
+            parts.append(chain)
+            sfx_tags.append(tag)
+
+        # ── Sidechain ducking (voiceovers only, attempt 1) ────────────────────
+        if vo_tags and with_sidechain:
+            # Combine all voiceover streams → one sidechain key
+            if len(vo_tags) == 1:
+                # Single voiceover: split for (a) sidechain key (b) output mix
+                parts.append(f"[{vo_tags[0]}]asplit=2[vo_key][vo_mix]")
+            else:
+                # Multiple voiceovers: merge then split
+                mixed = "".join(f"[{t}]" for t in vo_tags)
+                parts.append(
+                    f"{mixed}amix=inputs={len(vo_tags)}:duration=longest:normalize=0[vo_all]"
+                )
+                parts.append("[vo_all]asplit=2[vo_key][vo_mix]")
+
+            # sidechaincompress: clip audio ducked by 6:1 ratio while narrator speaks
+            # attack=5 ms  → quick response, no syllable clipping
+            # release=150 ms → smooth fade-back, no pumping artefacts
+            # threshold=0.015 ≈ −36 dBFS → triggers on any audible speech
+            parts.append(
+                "[vid_a][vo_key]"
+                "sidechaincompress="
+                "threshold=0.015:ratio=6:attack=5:release=150:level_sc=0.9"
+                "[vid_ducked]"
+            )
+            audio_base   = "[vid_ducked]"
+            overlay_tags = ["[vo_mix]"] + [f"[{t}]" for t in sfx_tags]
+
+        else:
+            # No voiceovers, or sidechaincompress unavailable → plain mix
+            audio_base   = "[vid_a]"
+            overlay_tags = [f"[{t}]" for t in vo_tags] + [f"[{t}]" for t in sfx_tags]
+
+        # ── Final mix ──────────────────────────────────────────────────────────
+        # duration=first → output length matches the video audio (first input)
+        n_mix   = 1 + len(overlay_tags)
+        all_mix = audio_base + "".join(overlay_tags)
+        parts.append(
+            f"{all_mix}amix=inputs={n_mix}:duration=first:normalize=0[out]"
+        )
+        return ";".join(parts)
+
+    # ── Runner ────────────────────────────────────────────────────────────────
+    def _run(filter_complex: str) -> bool:
+        cmd = base_cmd + [
+            "-filter_complex", filter_complex,
+            "-map", "0:v",
+            "-map", "[out]",
+            "-c:v", "copy",                  # video stream untouched
+            "-c:a", "aac", "-b:a", AUDIO_BITRATE,
+            "-ar", "48000", "-ac", "2",
+            output_path,
+        ]
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        return r.returncode == 0
+
+    # Attempt 1: sidechain ducking (needs sidechaincompress in FFmpeg build)
+    if valid_vos and _run(_build_filter(with_sidechain=True)):
+        return output_path
+
+    # Attempt 2: plain amix — SFX-only case or older FFmpeg without sidechain
+    if _run(_build_filter(with_sidechain=False)):
+        return output_path
+
+    return None
 
 
 def mix_audio_for_video(
@@ -143,7 +219,7 @@ def mix_audio_for_video(
 
     Strategy
     ────────
-    • No music  → loudnorm pass only (video stream copied, no re-encode).
+    • No music  → dynaudnorm pass only (video stream copied, no re-encode).
     • With music → loop music via -stream_loop, apply sidechaincompress ducking,
                    mix with speech, copy video stream.
 
@@ -172,7 +248,7 @@ def mix_audio_for_video(
 
     # ── Attempt 1: sidechaincompress ducking (FFmpeg native, very fast) ──────
     # Filter graph:
-    #   [speech]     — dynaudnorm with a very long window (f=500 frames ≈ 16 s)
+    #   [speech]     — dynaudnorm with a very long window (f=500 ms)
     #                  smooths level differences between voiceover and clip audio
     #                  without fast pumping/glitching. acompressor catches peaks.
     #   [music_prep] — volume-limited, trimmed, fade-in/out
