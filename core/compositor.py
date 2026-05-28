@@ -569,12 +569,26 @@ def _render_one_clip(
     ]
 
     if has_audio:
+        # Route audio through filter_complex so PTS is reset alongside the video.
+        # The fps filter in `vf` resets video PTS to start at 0; audio mapped
+        # directly (0:a:0) keeps its original PTS which — after a keyframe-aligned
+        # stream-copy trim — can start at +20–60 ms instead of 0.  That per-clip
+        # AV offset accumulates across every concat boundary and is perceived as
+        # choppy audio after the first clip.
+        vf_audio = (
+            vf + ";[0:a]"
+            "aresample=48000,"
+            "aformat=sample_rates=48000:channel_layouts=stereo,"
+            "asetpts=PTS-STARTPTS"
+            "[aout]"
+        )
         cmd = [
             FFMPEG_BIN, "-y",
             "-i", path, "-i", overlay_png,
-            "-filter_complex", vf,
-            "-map", "[out]", "-map", "0:a:0",
+            "-filter_complex", vf_audio,
+            "-map", "[out]", "-map", "[aout]",
             *_enc,
+            "-shortest",          # keep audio/video durations in lock-step
             output_path,
         ]
     else:
@@ -734,6 +748,7 @@ def _simple_concat(
            "-threads", "1",
            "-c:a", "aac", "-b:a", AUDIO_BITRATE,
            "-ar", "48000", "-ac", "2",
+           "-movflags", "+faststart",
            output_path]
     )
     r3 = subprocess.run(cmd3, capture_output=True, text=True, timeout=900)

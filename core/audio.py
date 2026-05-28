@@ -187,6 +187,7 @@ def add_audio_overlays(
             "-c:v", "copy",                  # video stream untouched
             "-c:a", "aac", "-b:a", AUDIO_BITRATE,
             "-ar", "48000", "-ac", "2",
+            "-movflags", "+faststart",       # moov atom first → smooth browser playback
             output_path,
         ]
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
@@ -236,6 +237,7 @@ def mix_audio_for_video(
                    "acompressor=threshold=0.1:ratio=2:attack=20:release=300",
             "-c:v", "copy",
             "-c:a", "aac", "-b:a", AUDIO_BITRATE,
+            "-movflags", "+faststart",
             output_path,
         ]
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
@@ -278,6 +280,7 @@ def mix_audio_for_video(
         "-c:v", "copy",
         "-c:a", "aac", "-b:a", AUDIO_BITRATE,
         "-shortest",
+        "-movflags", "+faststart",
         output_path,
     ]
     r = subprocess.run(cmd_sc, capture_output=True, text=True, timeout=300)
@@ -305,6 +308,7 @@ def mix_audio_for_video(
         "-c:v", "copy",
         "-c:a", "aac", "-b:a", AUDIO_BITRATE,
         "-shortest",
+        "-movflags", "+faststart",
         output_path,
     ]
     r2 = subprocess.run(cmd_simple, capture_output=True, text=True, timeout=300)
