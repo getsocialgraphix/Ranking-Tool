@@ -1016,6 +1016,73 @@ def _cid_from_label(label: str) -> str | None:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+#  Mobile-only Settings pill  (opens the sidebar on small screens)
+# ═══════════════════════════════════════════════════════════════════════════════
+st.markdown("""
+<style>
+/* ── Mobile settings pill ─────────────────────────────────────────────── */
+.mob-settings-pill { display: none; margin-bottom: 10px; }
+@media (max-width: 768px) {
+    .mob-settings-pill { display: block !important; }
+    /* Sidebar overlay: full-width sheet on mobile */
+    [data-testid="stSidebar"] {
+        min-width: 88vw !important;
+        max-width: 94vw !important;
+    }
+    /* Hide the tiny native sidebar arrow — our pill replaces it */
+    [data-testid="collapsedControl"] {
+        opacity: 0 !important;
+        pointer-events: none !important;
+        width: 0 !important;
+    }
+}
+.mob-settings-pill button {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 13px 16px;
+    background: linear-gradient(135deg,rgba(124,58,237,0.22),rgba(79,70,229,0.14));
+    border: 1.5px solid rgba(167,139,250,0.32);
+    border-radius: 14px;
+    color: #e9d5ff;
+    font-size: 0.93rem;
+    font-weight: 700;
+    cursor: pointer;
+    letter-spacing: -0.01em;
+    -webkit-tap-highlight-color: transparent;
+    transition: background 0.15s;
+}
+.mob-settings-pill button:active {
+    background: linear-gradient(135deg,rgba(124,58,237,0.38),rgba(79,70,229,0.28));
+}
+.mob-settings-pill .pill-sub {
+    font-size: 0.68rem;
+    font-weight: 400;
+    color: rgba(196,181,253,0.58);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+.mob-settings-pill .pill-arrow { font-size: 1.1rem; color: #a78bfa; }
+</style>
+<div class="mob-settings-pill">
+  <button onclick="(function(){
+    /* Click Streamlit's native sidebar toggle (works even when opacity:0) */
+    var ctrl = document.querySelector('[data-testid=collapsedControl]');
+    if(ctrl){ ctrl.style.opacity='1'; ctrl.style.pointerEvents='auto';
+              ctrl.click();
+              setTimeout(function(){ ctrl.style.opacity='0';
+                                     ctrl.style.pointerEvents='none'; }, 200); }
+  })()">
+    <span>⚙️&nbsp; Settings</span>
+    <span class="pill-sub">Presets &middot; Output &middot; Notifications</span>
+    <span class="pill-arrow">›</span>
+  </button>
+</div>
+""", unsafe_allow_html=True)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 #  Main 2-column layout
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -1390,69 +1457,8 @@ with left_col:
             except ValueError:
                 return 0
 
-        # ── Mobile section-picker (sticky dropdown, hidden on desktop) ────────
-        st.markdown("""
-<style>
-.adv-mobile-nav {
-    display: none;
-    position: sticky;
-    top: 0;
-    z-index: 9998;
-    padding: 8px 0 10px;
-    margin-bottom: 6px;
-    background: rgba(13,8,28,0.96);
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
-    border-bottom: 1px solid rgba(167,139,250,0.18);
-}
-@media (max-width: 640px) {
-    .adv-mobile-nav { display: block !important; }
-}
-.adv-mobile-nav select {
-    width: 100%;
-    background: rgba(109,40,217,0.18);
-    border: 1.5px solid rgba(167,139,250,0.35);
-    border-radius: 12px;
-    color: #e9d5ff;
-    font-size: 0.95rem;
-    font-weight: 600;
-    padding: 11px 38px 11px 14px;
-    outline: none;
-    -webkit-appearance: none;
-    appearance: none;
-    cursor: pointer;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23a78bfa' stroke-width='2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
-    background-repeat: no-repeat;
-    background-position: right 14px center;
-}
-.adv-mobile-nav select option { background: #1a0e38; color: #e9d5ff; }
-.adv-anchor { scroll-margin-top: 58px; }
-</style>
-<div class="adv-mobile-nav">
-  <select onchange="(function(id){
-      var el = document.getElementById(id);
-      if(el){ el.scrollIntoView({behavior:'smooth',block:'start'}); }
-  })(this.value); this.blur();">
-    <option value="" disabled selected>⚙️ Jump to section…</option>
-    <optgroup label="🎨 Visual Style">
-      <option value="adv-rank">🏅 Per-Rank Customization</option>
-      <option value="adv-numbers">🔢 Numbers</option>
-      <option value="adv-labels">🏷️ Clip Labels</option>
-      <option value="adv-banner">📛 Video Title Banner</option>
-      <option value="adv-panel">🌑 Panel Background</option>
-    </optgroup>
-    <optgroup label="🔊 Audio">
-      <option value="adv-music">🎵 Background Music</option>
-      <option value="adv-el">🎙️ ElevenLabs Voiceovers</option>
-      <option value="adv-sfx">💥 Sound Effects</option>
-    </optgroup>
-  </select>
-</div>
-""", unsafe_allow_html=True)
-
         st.markdown("#### 🎨 Visual Style")
 
-        st.markdown('<div id="adv-rank" class="adv-anchor"></div>', unsafe_allow_html=True)
         with st.expander("🏅 Per-Rank Customization", expanded=True):
             st.caption("Emoji prefix  ·  colour — per rank number")
             for rank_n in range(1, 11):
@@ -1472,7 +1478,6 @@ with left_col:
                         label_visibility="collapsed",
                     )
 
-        st.markdown('<div id="adv-numbers" class="adv-anchor"></div>', unsafe_allow_html=True)
         with st.expander("🔢 Numbers"):
             _cnf = st.selectbox("Font", _fn_names, index=_fi(ov["num_font"]), key="num_font_sel")
             ov["num_font"] = _af[_cnf]
@@ -1491,7 +1496,6 @@ with left_col:
             if not ov["num_use_rank_color"]:
                 ov["num_color"] = st.color_picker("Number colour", ov["num_color"], key="num_clr")
 
-        st.markdown('<div id="adv-labels" class="adv-anchor"></div>', unsafe_allow_html=True)
         with st.expander("🏷️ Clip Labels  (appear when clip plays)"):
             _ctf = st.selectbox("Font", _fn_names, index=_fi(ov["title_font"]), key="ttl_font_sel")
             ov["title_font"] = _af[_ctf]
@@ -1504,7 +1508,6 @@ with left_col:
                 ov["title_color"]        = st.color_picker("Text colour",    ov["title_color"],        key="ttl_clr")
                 ov["title_stroke_color"] = st.color_picker("Outline colour", ov["title_stroke_color"], key="ttl_sc")
 
-        st.markdown('<div id="adv-banner" class="adv-anchor"></div>', unsafe_allow_html=True)
         with st.expander("📛 Video Title Banner"):
             ov["banner_enabled"] = st.checkbox("Show banner", value=bool(ov["banner_enabled"]), key="bnr_on")
             if ov["banner_enabled"]:
@@ -1521,7 +1524,6 @@ with left_col:
                     ov["banner_color"]        = st.color_picker("Text colour",    ov["banner_color"],        key="bnr_clr")
                     ov["banner_stroke_color"] = st.color_picker("Outline colour", ov["banner_stroke_color"], key="bnr_sc")
 
-        st.markdown('<div id="adv-panel" class="adv-anchor"></div>', unsafe_allow_html=True)
         with st.expander("🌑 Panel Background  (default: off)"):
             ov["panel_alpha"] = st.slider(
                 "Opacity  (0 = transparent)", 0, 220, int(ov["panel_alpha"]), key="panel_a"
@@ -1532,7 +1534,6 @@ with left_col:
         st.divider()
         st.markdown("#### 🔊 Audio")
 
-        st.markdown('<div id="adv-music" class="adv-anchor"></div>', unsafe_allow_html=True)
         with st.expander("🎵 Background Music", expanded=True):
             music_file = st.file_uploader(
                 "Upload MP3 / WAV", type=["mp3", "wav"],
@@ -1554,7 +1555,6 @@ with left_col:
             else:
                 st.caption("No music loaded.")
 
-        st.markdown('<div id="adv-el" class="adv-anchor"></div>', unsafe_allow_html=True)
         with st.expander("🎙️ ElevenLabs Voiceovers"):
             try:
                 st.caption(
@@ -1654,7 +1654,6 @@ with left_col:
                     import traceback as _tb
                     st.code(_tb.format_exc())
 
-        st.markdown('<div id="adv-sfx" class="adv-anchor"></div>', unsafe_allow_html=True)
         with st.expander("💥 Sound Effects"):
             st.caption("Upload a clip and set the second it plays in the final video.")
             sfx_upload = st.file_uploader(
