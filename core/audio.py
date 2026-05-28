@@ -160,12 +160,13 @@ def mix_audio_for_video(
 
     # ── Attempt 1: sidechaincompress ducking (FFmpeg native, very fast) ──────
     # Filter graph:
-    #   [speech]      — normalize clip audio with dynamic normaliser
+    #   [speech]      — gentle loudnorm pass (replaces dynaudnorm which could
+    #                   over-amplify voiceover silence between clips)
     #   [music_prep]  — volume-limited, trimmed, fade-in/out
     #   sidechaincompress ducks [music_prep] when [speech] is loud
     #   amix combines both streams
     filter_sc = (
-        "[0:a]dynaudnorm=f=150:g=15:r=0.9[speech];"
+        "[0:a]loudnorm=I=-16:LRA=11:TP=-1.5[speech];"
         f"[1:a]volume={full_level:.6f},"
         f"atrim=0:{duration_s + 3.0:.3f},"
         "asetpts=PTS-STARTPTS,"
@@ -195,7 +196,7 @@ def mix_audio_for_video(
 
     # ── Attempt 2: simple amix without ducking (older FFmpeg builds) ─────────
     filter_simple = (
-        "[0:a]dynaudnorm=f=150:g=15:r=0.9[speech];"
+        "[0:a]loudnorm=I=-16:LRA=11:TP=-1.5[speech];"
         f"[1:a]volume={duck_level:.6f},"
         f"atrim=0:{duration_s + 3.0:.3f},"
         "asetpts=PTS-STARTPTS,"
