@@ -621,6 +621,12 @@ footer { visibility: hidden !important; height: 0 !important; }
 /* Coloured decoration ribbon at top */
 [data-testid="stDecoration"] { display: none !important; }
 
+/* Streamlit header bar — the black strip at the top of the page */
+header[data-testid="stHeader"] { display: none !important; height: 0 !important; }
+/* Reclaim the padding that was reserved for that header */
+.main .block-container { padding-top: 0.6rem !important; }
+[data-testid="stAppViewContainer"] > section.main > .block-container { padding-top: 0.6rem !important; }
+
 /* Hamburger menu (three-line icon) — hide text inside, keep sidebar toggle */
 #MainMenu { visibility: hidden !important; }
 
@@ -1026,33 +1032,40 @@ st.markdown("""
 @media (max-width: 768px) {
     .mob-settings-pill { display: block !important; }
 
-    /* ① Park the sidebar off the RIGHT edge, ready to slide in */
+    /* Park sidebar off the RIGHT edge — JS overrides transform to slide in */
+    section[data-testid="stSidebar"],
     [data-testid="stSidebar"] {
         position: fixed !important;
         top: 0 !important; bottom: 0 !important;
         right: 0 !important; left: auto !important;
         width: 88vw !important;
-        max-width: 380px !important;
+        max-width: 390px !important;
         transform: translateX(110%) !important;
-        transition: transform 0.32s cubic-bezier(0.25,0.46,0.45,0.94) !important;
-        z-index: 9998 !important;
+        transition: transform 0.30s cubic-bezier(0.25,0.46,0.45,0.94) !important;
+        z-index: 9999 !important;
         overflow-y: auto !important;
-        box-shadow: -6px 0 30px rgba(0,0,0,0.55) !important;
+        overflow-x: hidden !important;
+        box-shadow: -8px 0 40px rgba(0,0,0,0.65) !important;
+        /* ensure it's visible even if Streamlit hides it */
+        display: block !important;
+        visibility: visible !important;
+        opacity: 1 !important;
     }
 
-    /* ② Hide the native Streamlit collapse arrow */
+    /* Hide the native Streamlit collapse arrow */
     [data-testid="collapsedControl"] { display: none !important; }
 
-    /* ③ Backdrop */
+    /* Backdrop */
     #mob-sb-bd {
         display: none;
         position: fixed; inset: 0;
-        background: rgba(0,0,0,0.52);
+        background: rgba(0,0,0,0.55);
         backdrop-filter: blur(3px);
         -webkit-backdrop-filter: blur(3px);
-        z-index: 9997;
+        z-index: 9998;
+        -webkit-tap-highlight-color: transparent;
     }
-    #mob-sb-bd.on { display: block; }
+    #mob-sb-bd.on { display: block !important; }
 }
 
 /* Pill button */
@@ -1073,7 +1086,7 @@ st.markdown("""
     transition: background 0.15s;
     letter-spacing: -0.01em;
 }
-.mob-settings-pill > button:active { background: rgba(124,58,237,0.38); }
+.mob-settings-pill > button:active { background: rgba(124,58,237,0.42); }
 .mob-pill-sub {
     font-size: 0.68rem; font-weight: 400;
     color: rgba(196,181,253,0.6);
@@ -1082,7 +1095,7 @@ st.markdown("""
 .mob-pill-arrow { font-size: 1.15rem; color: #a78bfa; }
 </style>
 
-<!-- dim backdrop — tap anywhere to close -->
+<!-- backdrop -->
 <div id="mob-sb-bd" onclick="mobSBClose()"></div>
 
 <div class="mob-settings-pill">
@@ -1095,35 +1108,70 @@ st.markdown("""
 
 <script>
 (function(){
-  /* ── state ── */
   var OPEN = false;
 
-  function sb(){ return document.querySelector('[data-testid="stSidebar"]'); }
+  /* Try both the section element and any element with the testid */
+  function sb(){
+    return document.querySelector('section[data-testid="stSidebar"]') ||
+           document.querySelector('[data-testid="stSidebar"]');
+  }
   function bd(){ return document.getElementById('mob-sb-bd'); }
+
+  function _show(s){
+    s.style.setProperty('position',   'fixed',           'important');
+    s.style.setProperty('top',        '0',               'important');
+    s.style.setProperty('bottom',     '0',               'important');
+    s.style.setProperty('right',      '0',               'important');
+    s.style.setProperty('left',       'auto',            'important');
+    s.style.setProperty('width',      '88vw',            'important');
+    s.style.setProperty('max-width',  '390px',           'important');
+    s.style.setProperty('z-index',    '9999',            'important');
+    s.style.setProperty('display',    'block',           'important');
+    s.style.setProperty('visibility', 'visible',         'important');
+    s.style.setProperty('opacity',    '1',               'important');
+    s.style.setProperty('transform',  'translateX(0)',   'important');
+    s.style.setProperty('transition', 'transform 0.30s cubic-bezier(0.25,0.46,0.45,0.94)', 'important');
+    s.style.setProperty('overflow-y', 'auto',            'important');
+    s.style.setProperty('box-shadow', '-8px 0 40px rgba(0,0,0,0.65)', 'important');
+  }
+  function _hide(s){
+    s.style.setProperty('transform', 'translateX(110%)', 'important');
+  }
 
   function _apply(){
     var s = sb(), b = bd();
-    if(s) s.style.setProperty('transform', OPEN ? 'translateX(0)' : 'translateX(110%)', 'important');
-    if(b) { if(OPEN) b.classList.add('on'); else b.classList.remove('on'); }
+    if(s){ if(OPEN) _show(s); else _hide(s); }
+    if(b){ if(OPEN) b.classList.add('on'); else b.classList.remove('on'); }
   }
 
-  window.mobSBOpen  = function(){ OPEN = true;  _apply(); try{ sessionStorage.setItem('_mobSB','1');   }catch(e){} };
-  window.mobSBClose = function(){ OPEN = false; _apply(); try{ sessionStorage.removeItem('_mobSB');     }catch(e){} };
+  window.mobSBOpen  = function(){ OPEN=true;  _apply(); try{sessionStorage.setItem('_mobSB','1');}catch(e){} };
+  window.mobSBClose = function(){ OPEN=false; _apply(); try{sessionStorage.removeItem('_mobSB');}catch(e){} };
 
-  /* Restore state after Streamlit reruns */
+  /* Restore after Streamlit reruns */
   function restore(){
     try{ if(sessionStorage.getItem('_mobSB')){ OPEN=true; _apply(); } }catch(e){}
   }
-  /* Wait until the sidebar element is actually in the DOM */
-  function waitAndRestore(tries){
+  function waitAndRestore(n){
     if(sb()){ restore(); return; }
-    if(tries > 0) setTimeout(function(){ waitAndRestore(tries-1); }, 150);
+    if(n>0) setTimeout(function(){ waitAndRestore(n-1); }, 200);
   }
   if(document.readyState==='loading'){
-    document.addEventListener('DOMContentLoaded', function(){ waitAndRestore(12); });
-  } else {
-    waitAndRestore(12);
-  }
+    document.addEventListener('DOMContentLoaded', function(){ waitAndRestore(15); });
+  } else { waitAndRestore(15); }
+
+  /* ── Swipe gesture ─────────────────────────────────────────────── */
+  var _tx=0, _ty=0;
+  document.addEventListener('touchstart', function(e){
+    _tx = e.touches[0].clientX;
+    _ty = e.touches[0].clientY;
+  }, {passive:true});
+  document.addEventListener('touchend', function(e){
+    var dx = e.changedTouches[0].clientX - _tx;
+    var dy = Math.abs(e.changedTouches[0].clientY - _ty);
+    if(dy > 60) return;                         /* mostly vertical — ignore */
+    if(!OPEN && dx > 55 && _tx < 40) window.mobSBOpen();   /* swipe right from left edge */
+    if( OPEN && dx < -55)            window.mobSBClose();  /* swipe left anywhere → close */
+  }, {passive:true});
 })();
 </script>
 """, unsafe_allow_html=True)
