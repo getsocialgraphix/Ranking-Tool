@@ -166,7 +166,10 @@ def mix_audio_for_video(
     #   sidechaincompress ducks [music_prep] when [speech] is loud
     #   amix combines both streams
     filter_sc = (
-        "[0:a]loudnorm=I=-16:LRA=11:TP=-1.5[speech];"
+        # loudnorm for consistent target level; gentle compressor to prevent
+        # noise-floor amplification on quiet/noisy video clip segments
+        "[0:a]loudnorm=I=-16:LRA=11:TP=-1.5,"
+        "acompressor=threshold=0.06:ratio=3:attack=10:release=150:makeup=1[speech];"
         f"[1:a]volume={full_level:.6f},"
         f"atrim=0:{duration_s + 3.0:.3f},"
         "asetpts=PTS-STARTPTS,"
@@ -196,7 +199,8 @@ def mix_audio_for_video(
 
     # ── Attempt 2: simple amix without ducking (older FFmpeg builds) ─────────
     filter_simple = (
-        "[0:a]loudnorm=I=-16:LRA=11:TP=-1.5[speech];"
+        "[0:a]loudnorm=I=-16:LRA=11:TP=-1.5,"
+        "acompressor=threshold=0.06:ratio=3:attack=10:release=150:makeup=1[speech];"
         f"[1:a]volume={duck_level:.6f},"
         f"atrim=0:{duration_s + 3.0:.3f},"
         "asetpts=PTS-STARTPTS,"

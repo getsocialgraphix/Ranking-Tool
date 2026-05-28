@@ -563,7 +563,7 @@ def _render_one_clip(
         "-threads", "1",         # single-threaded encode → less frame-buffer RAM
         "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-b:a", AUDIO_BITRATE,
-        "-ar", "44100",          # force consistent sample rate across all clips
+        "-ar", "48000",          # broadcast standard — most cameras record at 48 kHz, no downsampling needed
         "-ac", "2",              # force stereo — avoids mono/stereo mismatch at concat
         "-movflags", "+faststart",
     ]
@@ -641,7 +641,7 @@ def _create_black_intro(
         "-threads", "1",         # single-threaded encode → less frame-buffer RAM
         "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-b:a", AUDIO_BITRATE,
-        "-ar", "44100",          # match the sample rate used by _render_one_clip
+        "-ar", "48000",          # upsample ElevenLabs (44.1 kHz) to match 48 kHz video clips
         "-ac", "2",              # upmix mono ElevenLabs audio to stereo
         "-movflags", "+faststart",
         "-shortest",
@@ -705,7 +705,7 @@ def _simple_concat(
         "-c:v", "libx264", "-b:v", VIDEO_BITRATE, "-preset", FFMPEG_PRESET,
         "-threads", "1",
         "-c:a", "aac", "-b:a", AUDIO_BITRATE,
-        "-ar", "44100", "-ac", "2",
+        "-ar", "48000", "-ac", "2",
         "-movflags", "+faststart",
         output_path,
     ]
@@ -727,7 +727,7 @@ def _simple_concat(
            "-c:v", "libx264", "-b:v", VIDEO_BITRATE, "-preset", FFMPEG_PRESET,
            "-threads", "1",
            "-c:a", "aac", "-b:a", AUDIO_BITRATE,
-           "-ar", "44100", "-ac", "2",
+           "-ar", "48000", "-ac", "2",
            output_path]
     )
     r3 = subprocess.run(cmd3, capture_output=True, text=True, timeout=900)
@@ -748,7 +748,7 @@ def concatenate_with_xfade(
             "-c:v", "libx264", "-b:v", VIDEO_BITRATE, "-preset", FFMPEG_PRESET,
             "-threads", "1",
             "-c:a", "aac", "-b:a", AUDIO_BITRATE,
-            "-ar", "44100", "-ac", "2",
+            "-ar", "48000", "-ac", "2",
             "-movflags", "+faststart",
             output_path,
         ]
@@ -791,7 +791,7 @@ def concatenate_with_xfade(
            "-c:v", "libx264", "-b:v", VIDEO_BITRATE, "-preset", FFMPEG_PRESET,
            "-threads", "1",         # single-threaded encode → less frame-buffer RAM
            "-c:a", "aac", "-b:a", AUDIO_BITRATE,
-           "-ar", "44100", "-ac", "2",
+           "-ar", "48000", "-ac", "2",
            "-movflags", "+faststart",
            output_path]
     )
