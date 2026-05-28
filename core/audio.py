@@ -8,6 +8,28 @@ Both steps use pure FFmpeg — no pydub — to avoid:
   • Sub-sample rounding errors from pydub's ms-to-sample conversion
   • Abrupt hard gain cuts at voiceover start/end boundaries (the "chop")
   • Unnecessary 44100 Hz → 48000 Hz resampling artefacts
+
+Key design decisions
+────────────────────
+• dynaudnorm is intentionally NOT used.  dynaudnorm=f=500:g=15 introduces
+  ~3 500 ms of look-ahead latency.  When paired with -c:v copy (stream-copy
+  video), FFmpeg compensates by writing the audio with a large negative PTS
+  that is corrected via an MP4 edit-list (elst box).  Many browser HTML5
+  video players (including Chromium) do not reliably honour elst boxes with
+  offsets larger than the standard AAC encoder delay (~21 ms), so the audio
+  plays 3.5 s early relative to the video — exactly what users perceive as
+  "choppy after the first clip."
+
+  Replacement: acompressor — zero look-ahead, causal, no latency.
+
+• In the music-ducking filter (filter_sc) the speech stream is used both as
+  the sidechain control signal for sidechaincompress AND as one of the amix
+  inputs.  In FFmpeg filter_complex a named output pad may only be connected
+  to ONE downstream filter.  Using [speech] in two places causes FFmpeg to
+  reject the graph silently (exit 1) and fall through to the plain-amix
+  fallback — breaking sidechain ducking entirely.  Fix: asplit=2 creates two
+  independent copies of the stream: [speech_key] (sidechain) and
+  [speech_mix] (output mix).
 """
 
 import json
@@ -215,12 +237,9 @@ def mix_audio_for_video(
     Mix background music into the assembled video using FFmpeg's native
     sidechaincompress filter for sidechain ducking.
 
-    Replaces the old pydub-based pipeline (which used Python loops over 10 ms
-    audio chunks) with a single FFmpeg subprocess — 10–50× faster on long videos.
-
     Strategy
     ────────
-    • No music  → dynaudnorm pass only (video stream copied, no re-encode).
+    • No music  → gentle acompressor pass only (video stream copied).
     • With music → loop music via -stream_loop, apply sidechaincompress ducking,
                    mix with speech, copy video stream.
 
@@ -228,13 +247,35 @@ def mix_audio_for_video(
     in the local FFmpeg build.
 
     Returns output_path on success, None on failure.
+
+    Why no dynaudnorm?
+    ──────────────────
+    dynaudnorm=f=500:g=15 introduces ~3 500 ms of look-ahead latency.  When
+    video is stream-copied (-c:v copy) FFmpeg cannot delay the video to
+    compensate, so it emits the audio with a large negative PTS stored in the
+    MP4 edit-list (elst).  Browser HTML5 players often ignore elst boxes with
+    offsets above the standard AAC encoder priming (21 ms), resulting in the
+    audio playing 3.5 s ahead of the video — perceived as "choppy audio after
+    the first clip."  acompressor is used instead: zero look-ahead, causal,
+    no latency, no A/V sync risk.
+
+    Why asplit in filter_sc?
+    ────────────────────────
+    In FFmpeg filter_complex each named output pad may only feed ONE downstream
+    filter.  The old code wrote [speech] as input to both sidechaincompress
+    (sidechain slot) and amix (mix slot), which FFmpeg rejects (exit 1),
+    silently discarding sidechain ducking and falling back to the plain-amix
+    branch.  asplit=2 creates two independent copies so each consumer gets its
+    own stream.
     """
     if not music_path:
-        # No music — normalise loudness with slow dynaudnorm; copy video stream
+        # No music — gentle compressor, zero latency — video stream copied unchanged.
+        # Do NOT use dynaudnorm here: its ~3 500 ms look-ahead latency with
+        # -c:v copy creates a large elst offset that browser players ignore,
+        # causing audio/video desync perceived as choppiness.
         cmd = [
             FFMPEG_BIN, "-y", "-i", video_path,
-            "-af", "dynaudnorm=f=500:g=15:r=0.9:p=0.95,"
-                   "acompressor=threshold=0.1:ratio=2:attack=20:release=300",
+            "-af", "acompressor=threshold=0.1:ratio=2:attack=20:release=300",
             "-c:v", "copy",
             "-c:a", "aac", "-b:a", AUDIO_BITRATE,
             "-movflags", "+faststart",
@@ -250,25 +291,29 @@ def mix_audio_for_video(
 
     # ── Attempt 1: sidechaincompress ducking (FFmpeg native, very fast) ──────
     # Filter graph:
-    #   [speech]     — dynaudnorm with a very long window (f=500 ms)
-    #                  smooths level differences between voiceover and clip audio
-    #                  without fast pumping/glitching. acompressor catches peaks.
+    #   [speech_key] — sidechain control signal (drives music ducking)
+    #   [speech_mix] — same speech audio added to the output mix
+    #   asplit=2 is REQUIRED: a named filter pad can only feed one consumer.
     #   [music_prep] — volume-limited, trimmed, fade-in/out
-    #   sidechaincompress ducks [music_prep] when [speech] is loud
-    #   amix combines both streams
+    #   sidechaincompress ducks [music_prep] when [speech_key] is loud
+    #   amix combines speech_mix + music_ducked → [out]
     filter_sc = (
-        "[0:a]dynaudnorm=f=500:g=15:r=0.9:p=0.95,"
-        "acompressor=threshold=0.1:ratio=2:attack=20:release=300[speech];"
+        # acompressor: gentle dynamics control, zero latency (no look-ahead)
+        "[0:a]acompressor=threshold=0.1:ratio=2:attack=20:release=300,"
+        # asplit: send one copy to sidechain, another to the output mix
+        "asplit=2[speech_key][speech_mix];"
         f"[1:a]volume={full_level:.6f},"
         f"atrim=0:{duration_s + 3.0:.3f},"
         "asetpts=PTS-STARTPTS,"
         "afade=t=in:st=0:d=1,"
         f"afade=t=out:st={fade_start:.3f}:d=2[music_prep];"
-        "[music_prep][speech]"
+        # sidechaincompress: music ducks when speech is loud
+        "[music_prep][speech_key]"
         "sidechaincompress="
         "threshold=0.015:ratio=6:attack=5:release=150:"
         "level_sc=0.9[music_ducked];"
-        "[speech][music_ducked]amix=inputs=2:duration=first:normalize=0[out]"
+        # amix: speech_mix + ducked music → final output
+        "[speech_mix][music_ducked]amix=inputs=2:duration=first:normalize=0[out]"
     )
     cmd_sc = [
         FFMPEG_BIN, "-y",
@@ -289,8 +334,8 @@ def mix_audio_for_video(
 
     # ── Attempt 2: simple amix without ducking (older FFmpeg builds) ─────────
     filter_simple = (
-        "[0:a]dynaudnorm=f=500:g=15:r=0.9:p=0.95,"
-        "acompressor=threshold=0.1:ratio=2:attack=20:release=300[speech];"
+        # No dynaudnorm — use aformat to normalise the stream (zero latency)
+        "[0:a]aformat=sample_rates=48000:channel_layouts=stereo[speech];"
         f"[1:a]volume={duck_level:.6f},"
         f"atrim=0:{duration_s + 3.0:.3f},"
         "asetpts=PTS-STARTPTS,"

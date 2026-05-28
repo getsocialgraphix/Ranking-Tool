@@ -533,11 +533,16 @@ def _render_one_clip(
 
     if abs(aspect - 9 / 16) < 0.12:
         # Vertical / near-9:16 — scale + centre-pad, then overlay
+        # setpts=PTS-STARTPTS after fps resets video PTS to 0 so it is in
+        # lock-step with the audio stream (also reset to 0 via asetpts below).
+        # Without this, keyframe-aligned stream-copy trims can leave video
+        # starting at PTS ≠ 0 even after the fps filter, which mis-aligns
+        # the per-clip A/V streams and causes choppiness at concat boundaries.
         vf = (
             f"[0:v]scale={OUTPUT_WIDTH}:{OUTPUT_HEIGHT}"
             f":force_original_aspect_ratio=decrease,"
             f"pad={OUTPUT_WIDTH}:{OUTPUT_HEIGHT}:(ow-iw)/2:(oh-ih)/2:black,"
-            f"setsar=1,fps={FPS},format=yuv420p[bg];"
+            f"setsar=1,fps={FPS},setpts=PTS-STARTPTS,format=yuv420p[bg];"
             f"[bg][1:v]overlay=0:0[out]"
         )
     else:
@@ -554,7 +559,7 @@ def _render_one_clip(
             f"[vid_fg]scale={OUTPUT_WIDTH}:-2,"
             f"setsar=1[fg];"
             f"[bg][fg]overlay=(W-w)/2:(H-h)/2,"
-            f"fps={FPS},format=yuv420p[comp];"
+            f"fps={FPS},setpts=PTS-STARTPTS,format=yuv420p[comp];"
             f"[comp][1:v]overlay=0:0[out]"
         )
 
@@ -792,24 +797,36 @@ def concatenate_with_xfade(
     for p in clip_paths:
         inputs += ["-i", p]
 
-    # Normalise every audio input to 48 kHz stereo and reset PTS to zero.
-    # acrossfade is sensitive to non-zero or inconsistent PTS values — without
-    # this step it can produce a brief chop/glitch at the crossfade point.
+    # Normalise every input to 48 kHz stereo and reset BOTH video and audio
+    # PTS to zero before xfade / acrossfade.
+    #
+    # xfade uses the 'offset' parameter (seconds from the start of the output
+    # timeline) to know when to begin the transition.  If any clip's video
+    # starts at PTS ≠ 0 (e.g. because a keyframe-aligned stream-copy trim
+    # left a sub-frame offset) the computed offset is wrong and the transition
+    # fires at the wrong moment — producing a visible/audible glitch.
+    #
+    # acrossfade is even more sensitive: it triggers when the first audio
+    # stream ends.  A non-zero PTS start moves that endpoint, desynchronising
+    # it from the xfade transition.
     parts: list[str] = []
     for k in range(n):
+        # Reset video PTS to 0 — required for correct xfade offset calculation.
+        parts.append(f"[{k}:v]setpts=PTS-STARTPTS[vn{k}]")
+        # Reset audio PTS to 0 — required for correct acrossfade timing.
         parts.append(
             f"[{k}:a]aformat=sample_rates=48000:channel_layouts=stereo,"
             f"asetpts=PTS-STARTPTS[an{k}]"
         )
 
-    cum, prev_v, prev_a = 0.0, "[0:v]", "[an0]"
+    cum, prev_v, prev_a = 0.0, "[vn0]", "[an0]"
     for i in range(1, n):
         cum   += durations[i - 1] - crossfade
         last   = (i == n - 1)
         tag_v  = "[vout]" if last else f"[v{i}]"
         tag_a  = "[aout]" if last else f"[a{i}]"
         parts.append(
-            f"{prev_v}[{i}:v]xfade=transition=fade"
+            f"{prev_v}[vn{i}]xfade=transition=fade"
             f":duration={crossfade:.4f}:offset={cum:.4f}{tag_v}"
         )
         parts.append(f"{prev_a}[an{i}]acrossfade=d={crossfade:.4f}{tag_a}")
