@@ -38,7 +38,7 @@ def _extract_audio(video_path: str) -> Optional[str]:
     out = str(AUDIO_DIR / "clip_audio.wav")
     cmd = [
         FFMPEG_BIN, "-y", "-i", video_path,
-        "-vn", "-acodec", "pcm_s16le", "-ar", "44100", "-ac", "2",
+        "-vn", "-acodec", "pcm_s16le", "-ar", "48000", "-ac", "2",
         out,
     ]
     r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
@@ -53,6 +53,7 @@ def _replace_audio(video_path: str, audio_wav: str, output_path: str) -> Optiona
         "-map", "0:v", "-map", "1:a",
         "-c:v", "copy",
         "-c:a", "aac", "-b:a", AUDIO_BITRATE,
+        "-ar", "48000", "-ac", "2",
         "-shortest",
         output_path,
     ]

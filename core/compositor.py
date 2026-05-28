@@ -847,14 +847,8 @@ def assemble_video(
     display_order = sorted(clip_data, key=lambda c: c["rank"])
     n             = len(play_order)
 
-    # Compute start times (in play order) so the caller can sync voiceovers
-    timings_ms: list[int] = []
-    t = 0.0
-    for i, c in enumerate(play_order):
-        timings_ms.append(int(t * 1000))
-        t += c["duration"] - (crossfade if i < n - 1 else 0)
-
-    assemble_video.timings_ms = timings_ms  # type: ignore[attr-defined]
+    # timings_ms is computed AFTER Phase 2 once actual rendered durations are known.
+    # (metadata durations can differ from reality by 20–60 ms due to FPS/frame alignment)
 
     # Adaptive CRF: when xfade will re-encode the intermediates use a higher
     # (faster) CRF; when stream-copy is used the intermediate CRF IS the final
@@ -905,15 +899,29 @@ def assemble_video(
             clip, overlay_paths[play_idx], out,
             crf=_render_crf, status_cb=_log,
         )
-        clip_dur = max(0.1, float(clip.get("duration", 1.0)))
         clip_out = result if result else clip["path"]
         if not result:
             _log("         ⚠ render failed — using raw clip as fallback")
         else:
             _log("         ✓")
 
+        # Probe the ACTUAL rendered duration — metadata can be off by 20–60 ms
+        # due to FPS rounding / frame-alignment.  xfade offsets must be exact
+        # or FFmpeg crashes / glitches at every transition.
+        _probed  = _probe_full(clip_out).get("duration", 0.0)
+        clip_dur = max(0.1, _probed if _probed > 0 else float(clip.get("duration", 1.0)))
+
         rendered.append(clip_out)
         durations.append(clip_dur)
+
+    # Build voiceover timing map from ACTUAL rendered durations so app.py
+    # overlays each narrator track at the exact millisecond the clip starts.
+    timings_ms: list[int] = []
+    t = 0.0
+    for i, dur in enumerate(durations):
+        timings_ms.append(int(t * 1000))
+        t += dur - (crossfade if i < n - 1 else 0)
+    assemble_video.timings_ms = timings_ms  # type: ignore[attr-defined]
 
     _log("Concatenating clips…")
     return concatenate_with_xfade(
