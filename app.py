@@ -1031,75 +1031,34 @@ st.markdown("""
 
 @media (max-width: 768px) {
     .mob-settings-pill { display: block !important; }
-
-    /* Park sidebar off the RIGHT edge — JS overrides transform to slide in */
-    section[data-testid="stSidebar"],
-    [data-testid="stSidebar"] {
-        position: fixed !important;
-        top: 0 !important; bottom: 0 !important;
-        right: 0 !important; left: auto !important;
-        width: 88vw !important;
-        max-width: 390px !important;
-        transform: translateX(110%) !important;
-        transition: transform 0.30s cubic-bezier(0.25,0.46,0.45,0.94) !important;
-        z-index: 9999 !important;
-        overflow-y: auto !important;
-        overflow-x: hidden !important;
-        box-shadow: -8px 0 40px rgba(0,0,0,0.65) !important;
-        /* ensure it's visible even if Streamlit hides it */
-        display: block !important;
-        visibility: visible !important;
-        opacity: 1 !important;
-    }
-
-    /* Hide the native Streamlit collapse arrow */
     [data-testid="collapsedControl"] { display: none !important; }
-
-    /* Backdrop */
     #mob-sb-bd {
-        display: none;
-        position: fixed; inset: 0;
+        display: none; position: fixed; inset: 0;
         background: rgba(0,0,0,0.55);
-        backdrop-filter: blur(3px);
-        -webkit-backdrop-filter: blur(3px);
-        z-index: 9998;
-        -webkit-tap-highlight-color: transparent;
+        backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
+        z-index: 9998; -webkit-tap-highlight-color: transparent;
     }
     #mob-sb-bd.on { display: block !important; }
 }
-
-/* Pill button */
 .mob-settings-pill > button {
-    width: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 13px 16px;
+    width: 100%; display: flex; align-items: center;
+    justify-content: space-between; padding: 13px 16px;
     background: linear-gradient(135deg,rgba(124,58,237,0.22),rgba(79,70,229,0.14));
-    border: 1.5px solid rgba(167,139,250,0.32);
-    border-radius: 14px;
-    color: #e9d5ff;
-    font-size: 0.93rem;
-    font-weight: 700;
-    cursor: pointer;
-    -webkit-tap-highlight-color: transparent;
-    transition: background 0.15s;
-    letter-spacing: -0.01em;
+    border: 1.5px solid rgba(167,139,250,0.32); border-radius: 14px;
+    color: #e9d5ff; font-size: 0.93rem; font-weight: 700;
+    cursor: pointer; -webkit-tap-highlight-color: transparent;
+    transition: background 0.15s; letter-spacing: -0.01em;
 }
 .mob-settings-pill > button:active { background: rgba(124,58,237,0.42); }
-.mob-pill-sub {
-    font-size: 0.68rem; font-weight: 400;
-    color: rgba(196,181,253,0.6);
-    letter-spacing: 0.04em; text-transform: uppercase;
-}
-.mob-pill-arrow { font-size: 1.15rem; color: #a78bfa; }
+.mob-pill-sub { font-size:0.68rem; font-weight:400; color:rgba(196,181,253,0.6);
+                letter-spacing:0.04em; text-transform:uppercase; }
+.mob-pill-arrow { font-size:1.15rem; color:#a78bfa; }
 </style>
 
-<!-- backdrop -->
-<div id="mob-sb-bd" onclick="mobSBClose()"></div>
+<div id="mob-sb-bd"></div>
 
 <div class="mob-settings-pill">
-  <button onclick="mobSBOpen()">
+  <button id="mob-open-btn">
     <span>⚙️&nbsp; Settings</span>
     <span class="mob-pill-sub">Presets &middot; Output &middot; Notifications</span>
     <span class="mob-pill-arrow">›</span>
@@ -1107,71 +1066,65 @@ st.markdown("""
 </div>
 
 <script>
+/* NOTE: Streamlit's HTML sanitiser strips onclick="..." attributes.
+   All click handlers are attached via addEventListener in this script. */
 (function(){
   var OPEN = false;
+  var SK   = '_rtMobSB';
 
-  /* Try both the section element and any element with the testid */
-  function sb(){
-    return document.querySelector('section[data-testid="stSidebar"]') ||
-           document.querySelector('[data-testid="stSidebar"]');
-  }
-  function bd(){ return document.getElementById('mob-sb-bd'); }
+  function getSB(){ return document.querySelector('section[data-testid="stSidebar"]') || document.querySelector('[data-testid="stSidebar"]'); }
+  function getBD(){ return document.getElementById('mob-sb-bd'); }
 
-  function _show(s){
-    s.style.setProperty('position',   'fixed',           'important');
-    s.style.setProperty('top',        '0',               'important');
-    s.style.setProperty('bottom',     '0',               'important');
-    s.style.setProperty('right',      '0',               'important');
-    s.style.setProperty('left',       'auto',            'important');
-    s.style.setProperty('width',      '88vw',            'important');
-    s.style.setProperty('max-width',  '390px',           'important');
-    s.style.setProperty('z-index',    '9999',            'important');
-    s.style.setProperty('display',    'block',           'important');
-    s.style.setProperty('visibility', 'visible',         'important');
-    s.style.setProperty('opacity',    '1',               'important');
-    s.style.setProperty('transform',  'translateX(0)',   'important');
-    s.style.setProperty('transition', 'transform 0.30s cubic-bezier(0.25,0.46,0.45,0.94)', 'important');
-    s.style.setProperty('overflow-y', 'auto',            'important');
-    s.style.setProperty('box-shadow', '-8px 0 40px rgba(0,0,0,0.65)', 'important');
-  }
-  function _hide(s){
-    s.style.setProperty('transform', 'translateX(110%)', 'important');
+  function sp(el,k,v){ el.style.setProperty(k,v,'important'); }
+
+  function doOpen(){
+    var s=getSB(), b=getBD();
+    if(s){
+      sp(s,'position','fixed');   sp(s,'top','0');        sp(s,'bottom','0');
+      sp(s,'right','0');          sp(s,'left','auto');    sp(s,'width','88vw');
+      sp(s,'max-width','390px');  sp(s,'z-index','99999');
+      sp(s,'display','block');    sp(s,'visibility','visible'); sp(s,'opacity','1');
+      sp(s,'overflow-y','auto');  sp(s,'overflow-x','hidden');
+      sp(s,'box-shadow','-8px 0 40px rgba(0,0,0,0.65)');
+      sp(s,'transition','transform 0.30s cubic-bezier(0.25,0.46,0.45,0.94)');
+      sp(s,'transform','translateX(0)');
+    }
+    if(b) b.classList.add('on');
+    OPEN=true; try{sessionStorage.setItem(SK,'1');}catch(e){}
   }
 
-  function _apply(){
-    var s = sb(), b = bd();
-    if(s){ if(OPEN) _show(s); else _hide(s); }
-    if(b){ if(OPEN) b.classList.add('on'); else b.classList.remove('on'); }
+  function doClose(){
+    var s=getSB(), b=getBD();
+    if(s) sp(s,'transform','translateX(110%)');
+    if(b) b.classList.remove('on');
+    OPEN=false; try{sessionStorage.removeItem(SK);}catch(e){}
   }
 
-  window.mobSBOpen  = function(){ OPEN=true;  _apply(); try{sessionStorage.setItem('_mobSB','1');}catch(e){} };
-  window.mobSBClose = function(){ OPEN=false; _apply(); try{sessionStorage.removeItem('_mobSB');}catch(e){} };
+  /* Expose globally so other scripts can call them if needed */
+  window.mobSBOpen  = doOpen;
+  window.mobSBClose = doClose;
 
-  /* Restore after Streamlit reruns */
-  function restore(){
-    try{ if(sessionStorage.getItem('_mobSB')){ OPEN=true; _apply(); } }catch(e){}
+  /* Attach listeners (NOT onclick attrs — those get stripped by sanitiser) */
+  function attachAll(){
+    var ob = document.getElementById('mob-open-btn');
+    if(ob && !ob._mh){ ob.addEventListener('click', doOpen, {passive:false}); ob._mh=1; }
+    var bd = getBD();
+    if(bd && !bd._mh){ bd.addEventListener('click', doClose, {passive:false}); bd._mh=1; }
   }
-  function waitAndRestore(n){
-    if(sb()){ restore(); return; }
-    if(n>0) setTimeout(function(){ waitAndRestore(n-1); }, 200);
-  }
-  if(document.readyState==='loading'){
-    document.addEventListener('DOMContentLoaded', function(){ waitAndRestore(15); });
-  } else { waitAndRestore(15); }
 
-  /* ── Swipe gesture ─────────────────────────────────────────────── */
-  var _tx=0, _ty=0;
-  document.addEventListener('touchstart', function(e){
-    _tx = e.touches[0].clientX;
-    _ty = e.touches[0].clientY;
-  }, {passive:true});
-  document.addEventListener('touchend', function(e){
-    var dx = e.changedTouches[0].clientX - _tx;
-    var dy = Math.abs(e.changedTouches[0].clientY - _ty);
-    if(dy > 60) return;                         /* mostly vertical — ignore */
-    if(!OPEN && dx > 55 && _tx < 40) window.mobSBOpen();   /* swipe right from left edge */
-    if( OPEN && dx < -55)            window.mobSBClose();  /* swipe left anywhere → close */
-  }, {passive:true});
+  /* Restore open state after Streamlit rerenders */
+  function restoreIfNeeded(){
+    try{ if(sessionStorage.getItem(SK) && getSB()){ doOpen(); } }catch(e){}
+  }
+
+  function init(n){
+    attachAll();
+    restoreIfNeeded();
+    if(!getSB() && n>0) setTimeout(function(){ init(n-1); }, 200);
+  }
+
+  /* Small delay so Streamlit finishes rendering before we query the DOM */
+  setTimeout(function(){ init(25); }, 80);
 })();
 </script>
 """, unsafe_allow_html=True)
