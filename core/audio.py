@@ -45,6 +45,13 @@ from config import (
 AUDIO_DIR = TEMP_DIR / "audio"
 AUDIO_DIR.mkdir(parents=True, exist_ok=True)
 
+# Keep all mixed audio safely below full scale before AAC encoding. The
+# existing graphs intentionally use amix=normalize=0 so voiceovers keep their
+# requested level, but that also means clip audio + narration + SFX/music can
+# exceed 0 dBFS and crackle after encoding. A true-peak limiter preserves the
+# mix balance while preventing that "glitchy" clipped sound.
+MIX_LIMITER = "alimiter=limit=0.95:level=disabled"
+
 
 # ── FFmpeg helpers ────────────────────────────────────────────────────────────
 
@@ -196,7 +203,8 @@ def add_audio_overlays(
         n_mix   = 1 + len(overlay_tags)
         all_mix = audio_base + "".join(overlay_tags)
         parts.append(
-            f"{all_mix}amix=inputs={n_mix}:duration=first:normalize=0[out]"
+            f"{all_mix}amix=inputs={n_mix}:duration=first:normalize=0,"
+            f"{MIX_LIMITER}[out]"
         )
         return ";".join(parts)
 
@@ -275,9 +283,12 @@ def mix_audio_for_video(
         # causing audio/video desync perceived as choppiness.
         cmd = [
             FFMPEG_BIN, "-y", "-i", video_path,
-            "-af", "acompressor=threshold=0.1:ratio=2:attack=20:release=300",
+            "-af",
+            "acompressor=threshold=0.1:ratio=2:attack=20:release=300,"
+            f"{MIX_LIMITER}",
             "-c:v", "copy",
             "-c:a", "aac", "-b:a", AUDIO_BITRATE,
+            "-ar", "48000", "-ac", "2",
             "-movflags", "+faststart",
             output_path,
         ]
@@ -313,7 +324,8 @@ def mix_audio_for_video(
         "threshold=0.015:ratio=6:attack=5:release=150:"
         "level_sc=0.9[music_ducked];"
         # amix: speech_mix + ducked music → final output
-        "[speech_mix][music_ducked]amix=inputs=2:duration=first:normalize=0[out]"
+        "[speech_mix][music_ducked]amix=inputs=2:duration=first:normalize=0,"
+        f"{MIX_LIMITER}[out]"
     )
     cmd_sc = [
         FFMPEG_BIN, "-y",
@@ -341,7 +353,8 @@ def mix_audio_for_video(
         "asetpts=PTS-STARTPTS,"
         "afade=t=in:st=0:d=1,"
         f"afade=t=out:st={fade_start:.3f}:d=2[music_simple];"
-        "[speech][music_simple]amix=inputs=2:duration=first:normalize=0[out]"
+        "[speech][music_simple]amix=inputs=2:duration=first:normalize=0,"
+        f"{MIX_LIMITER}[out]"
     )
     cmd_simple = [
         FFMPEG_BIN, "-y",
