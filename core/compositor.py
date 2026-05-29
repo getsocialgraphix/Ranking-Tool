@@ -813,11 +813,36 @@ def concatenate_with_xfade(
     for k in range(n):
         # Reset video PTS to 0 — required for correct xfade offset calculation.
         parts.append(f"[{k}:v]setpts=PTS-STARTPTS[vn{k}]")
-        # Reset audio PTS to 0 — required for correct acrossfade timing.
-        parts.append(
-            f"[{k}:a]aformat=sample_rates=48000:channel_layouts=stereo,"
-            f"asetpts=PTS-STARTPTS[an{k}]"
-        )
+        # Reset audio PTS to 0 AND hard-lock the audio length to EXACTLY the
+        # clip's (frame-quantised) video duration.
+        #
+        # Why this matters — the audio-drift bug:
+        #   The video xfade chain uses an explicit cumulative `offset=` computed
+        #   from durations[] (the probed *video* durations).  The audio
+        #   acrossfade chain, by contrast, triggers relative to each audio
+        #   stream's OWN length.  A real clip's audio is almost never exactly
+        #   the same length as its frame-quantised video (typically 15–30 ms
+        #   longer).  Chaining acrossfade across N clips makes the audio
+        #   timeline drift further and further ahead of the video timeline
+        #   (measured: ~-66 ms over 3 clips, growing to -200 ms+ on long lists)
+        #   — heard as audio that grows progressively out of sync / "choppy
+        #   after the first clip".
+        #
+        #   apad → atrim pads (if short) then cuts the audio to EXACTLY the
+        #   video duration, so every acrossfade overlap lands at the same instant
+        #   as its matching video xfade and the two timelines stay locked.
+        _d = float(durations[k]) if k < len(durations) else 0.0
+        if _d > 0:
+            parts.append(
+                f"[{k}:a]aformat=sample_rates=48000:channel_layouts=stereo,"
+                f"asetpts=PTS-STARTPTS,apad,atrim=0:{_d:.4f},"
+                f"asetpts=PTS-STARTPTS[an{k}]"
+            )
+        else:
+            parts.append(
+                f"[{k}:a]aformat=sample_rates=48000:channel_layouts=stereo,"
+                f"asetpts=PTS-STARTPTS[an{k}]"
+            )
 
     cum, prev_v, prev_a = 0.0, "[vn0]", "[an0]"
     for i in range(1, n):
