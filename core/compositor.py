@@ -871,7 +871,9 @@ def assemble_video(
       3. Concatenate with crossfade transitions
 
     Required clip_data keys: path, rank, title, duration, width, height
-    Optional key:  commentary  (used by app.py for ElevenLabs timing, ignored here)
+    Optional key: voiceover_path. When present, a black-screen intro segment is
+    inserted immediately before that clip and lasts exactly as long as the
+    voiceover audio.
 
     Returns: path to the assembled .mp4, or None on failure.
     Also returns clip_timings_ms list via  assemble_video.timings  attribute
@@ -886,9 +888,6 @@ def assemble_video(
 
     crossfade = float(preset.get("crossfade_duration", 0.25))
 
-    # Voiceovers are now overlaid on the finished video in a post-process step
-    # (in app.py, after assembly) — no black-screen intros, no concat complications.
-
     # Play order : rank N plays first → rank 1 plays last (the grand reveal / climax)
     play_order    = sorted(clip_data, key=lambda c: c["rank"], reverse=True)
     # Display order: rank 1 at top → rank N at bottom  (ascending, matches what the UI shows)
@@ -901,7 +900,11 @@ def assemble_video(
     # Adaptive CRF: when xfade will re-encode the intermediates use a higher
     # (faster) CRF; when stream-copy is used the intermediate CRF IS the final
     # quality so we keep the configured CRF from config.py.
-    _use_xfade  = (crossfade >= 0.05 and n > 1)
+    _has_voiceover_intros = any(
+        c.get("voiceover_path") and Path(c["voiceover_path"]).exists()
+        for c in play_order
+    )
+    _use_xfade  = (crossfade >= 0.05 and n > 1 and not _has_voiceover_intros)
     _render_crf = _INTERMEDIATE_CRF if _use_xfade else CRF
 
     _log(f"Rendering {n} clip(s) with ranking overlay"
@@ -933,8 +936,9 @@ def assemble_video(
                 _log(f"  ⚠ Overlay generation failed for slot {futures[fut]}: {_ov_exc}")
 
     # ── Phase 2: Render each clip sequentially (FFmpeg — Streamlit log-safe) ─
-    # Voiceovers are handled as a post-process overlay step in app.py after
-    # the full video is assembled — no black-screen intros here.
+    # If a clip has an ElevenLabs voiceover, insert a black intro segment before
+    # the clip. This keeps commentary and clip audio on separate timeline
+    # sections instead of mixing them at the same timestamp.
     rendered:  list[str]   = []
     durations: list[float] = []
 
@@ -959,6 +963,21 @@ def assemble_video(
         _probed  = _probe_full(clip_out).get("duration", 0.0)
         clip_dur = max(0.1, _probed if _probed > 0 else float(clip.get("duration", 1.0)))
 
+        vo_path = clip.get("voiceover_path")
+        if vo_path and Path(vo_path).exists():
+            intro_out = str(TEMP_DIR / f"voice_intro_{play_idx:02d}.mp4")
+            intro = _create_black_intro(
+                vo_path, overlay_paths[play_idx], intro_out,
+                crf=_render_crf, status_cb=_log,
+            )
+            if intro:
+                intro_dur = _probe_full(intro).get("duration", 0.0)
+                rendered.append(intro)
+                durations.append(max(0.1, intro_dur))
+                _log("         ✓ voiceover black intro")
+            else:
+                _log("         ⚠ voiceover intro failed — continuing with clip only")
+
         rendered.append(clip_out)
         durations.append(clip_dur)
 
@@ -972,6 +991,8 @@ def assemble_video(
     assemble_video.timings_ms = timings_ms  # type: ignore[attr-defined]
 
     _log("Concatenating clips…")
+    if _has_voiceover_intros:
+        return _simple_concat(rendered, output_path, status_cb=_log)
     return concatenate_with_xfade(
         rendered, durations, output_path,
         crossfade=crossfade, status_cb=_log,
