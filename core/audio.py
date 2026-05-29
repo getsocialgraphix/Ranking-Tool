@@ -303,6 +303,11 @@ def mix_audio_for_video(
     branch.  asplit=2 creates two independent copies so each consumer gets its
     own stream.
     """
+    duration_s = _probe_duration(video_path)
+    if duration_s <= 0:
+        duration_s = 1.0
+    fade_start = max(0.0, duration_s - 2.0)
+
     if not music_path:
         # No music — gentle compressor, zero latency — video stream copied unchanged.
         # Do NOT use dynaudnorm here: its ~3 500 ms look-ahead latency with
@@ -312,20 +317,16 @@ def mix_audio_for_video(
             FFMPEG_BIN, "-y", "-i", video_path,
             "-af",
             "acompressor=threshold=0.1:ratio=2:attack=20:release=300,"
-            f"{MIX_LIMITER}",
+            f"{MIX_LIMITER},apad,atrim=0:{duration_s:.3f}",
             "-c:v", "copy",
             "-c:a", "aac", "-b:a", AUDIO_BITRATE,
             "-ar", "48000", "-ac", "2",
+            "-t", f"{duration_s:.3f}",
             "-movflags", "+faststart",
             output_path,
         ]
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
         return output_path if r.returncode == 0 else None
-
-    duration_s = _probe_duration(video_path)
-    if duration_s <= 0:
-        duration_s = 1.0
-    fade_start = max(0.0, duration_s - 2.0)
 
     # ── Attempt 1: sidechaincompress ducking (FFmpeg native, very fast) ──────
     # Filter graph:
@@ -337,10 +338,13 @@ def mix_audio_for_video(
     #   amix combines speech_mix + music_ducked → [out]
     filter_sc = (
         # acompressor: gentle dynamics control, zero latency (no look-ahead)
-        "[0:a]acompressor=threshold=0.1:ratio=2:attack=20:release=300,"
+        "[0:a]aformat=sample_rates=48000:channel_layouts=stereo,"
+        "acompressor=threshold=0.1:ratio=2:attack=20:release=300,"
+        f"apad,atrim=0:{duration_s:.3f},"
         # asplit: send one copy to sidechain, another to the output mix
         "asplit=2[speech_key][speech_mix];"
-        f"[1:a]volume={full_level:.6f},"
+        f"[1:a]aresample=48000,aformat=sample_rates=48000:channel_layouts=stereo,"
+        f"volume={full_level:.6f},"
         f"atrim=0:{duration_s + 3.0:.3f},"
         "asetpts=PTS-STARTPTS,"
         "afade=t=in:st=0:d=1,"
@@ -363,7 +367,8 @@ def mix_audio_for_video(
         "-map", "[out]",
         "-c:v", "copy",
         "-c:a", "aac", "-b:a", AUDIO_BITRATE,
-        "-shortest",
+        "-ar", "48000", "-ac", "2",
+        "-t", f"{duration_s:.3f}",
         "-movflags", "+faststart",
         output_path,
     ]
@@ -374,8 +379,10 @@ def mix_audio_for_video(
     # ── Attempt 2: simple amix without ducking (older FFmpeg builds) ─────────
     filter_simple = (
         # No dynaudnorm — use aformat to normalise the stream (zero latency)
-        "[0:a]aformat=sample_rates=48000:channel_layouts=stereo[speech];"
-        f"[1:a]volume={duck_level:.6f},"
+        "[0:a]aformat=sample_rates=48000:channel_layouts=stereo,"
+        f"apad,atrim=0:{duration_s:.3f}[speech];"
+        f"[1:a]aresample=48000,aformat=sample_rates=48000:channel_layouts=stereo,"
+        f"volume={duck_level:.6f},"
         f"atrim=0:{duration_s + 3.0:.3f},"
         "asetpts=PTS-STARTPTS,"
         "afade=t=in:st=0:d=1,"
@@ -392,7 +399,8 @@ def mix_audio_for_video(
         "-map", "[out]",
         "-c:v", "copy",
         "-c:a", "aac", "-b:a", AUDIO_BITRATE,
-        "-shortest",
+        "-ar", "48000", "-ac", "2",
+        "-t", f"{duration_s:.3f}",
         "-movflags", "+faststart",
         output_path,
     ]
