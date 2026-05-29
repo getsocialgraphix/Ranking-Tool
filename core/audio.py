@@ -51,6 +51,7 @@ AUDIO_DIR.mkdir(parents=True, exist_ok=True)
 # exceed 0 dBFS and crackle after encoding. A true-peak limiter preserves the
 # mix balance while preventing that "glitchy" clipped sound.
 MIX_LIMITER = "alimiter=limit=0.95:level=disabled"
+VOICEOVER_GAP_MS = 120
 
 
 # ── FFmpeg helpers ────────────────────────────────────────────────────────────
@@ -61,6 +62,28 @@ def _probe_duration(path: str) -> float:
     if r.returncode != 0:
         return 0.0
     return float(json.loads(r.stdout).get("format", {}).get("duration", 0.0))
+
+
+def _schedule_voiceover_lane(voiceovers: list[dict]) -> list[dict]:
+    """
+    Keep generated narration in one non-overlapping lane.
+
+    If an ElevenLabs line is longer than its ranked clip, the next line used to
+    start on top of it at the next clip boundary. That sounds like glitching
+    even when every individual MP3 is fine. We preserve the requested clip
+    starts where possible, but push a voiceover later when the previous one is
+    still speaking.
+    """
+    scheduled: list[dict] = []
+    next_free_ms = 0
+    for vo in sorted(voiceovers, key=lambda item: int(item.get("start_ms", 0))):
+        start_ms = max(int(vo.get("start_ms", 0)), next_free_ms)
+        duration_ms = int(_probe_duration(vo["path"]) * 1000)
+        scheduled_vo = {**vo, "start_ms": start_ms}
+        scheduled.append(scheduled_vo)
+        if duration_ms > 0:
+            next_free_ms = start_ms + duration_ms + VOICEOVER_GAP_MS
+    return scheduled
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -104,6 +127,8 @@ def add_audio_overlays(
     ]
     if not valid_vos and not valid_sfx:
         return video_path
+
+    valid_vos = _schedule_voiceover_lane(valid_vos)
 
     n_vo  = len(valid_vos)
     n_sfx = len(valid_sfx)
@@ -180,14 +205,13 @@ def add_audio_overlays(
                 )
                 parts.append("[vo_all]asplit=2[vo_key][vo_mix]")
 
-            # sidechaincompress: clip audio ducked by 6:1 ratio while narrator speaks
-            # attack=5 ms  → quick response, no syllable clipping
-            # release=150 ms → smooth fade-back, no pumping artefacts
-            # threshold=0.015 ≈ −36 dBFS → triggers on any audible speech
+            # Strong voiceover-first ducking: keep clip audio present, but
+            # push it far behind the narrator so the lanes do not clash.
             parts.append(
                 "[vid_a][vo_key]"
                 "sidechaincompress="
-                "threshold=0.015:ratio=6:attack=5:release=150:level_sc=0.9"
+                "threshold=0.003:ratio=20:attack=2:release=350:"
+                "level_sc=1.4:detection=peak:link=maximum"
                 "[vid_ducked]"
             )
             audio_base   = "[vid_ducked]"
@@ -196,6 +220,9 @@ def add_audio_overlays(
         else:
             # No voiceovers, or sidechaincompress unavailable → plain mix
             audio_base   = "[vid_a]"
+            if vo_tags:
+                parts.append("[vid_a]volume=0.25[vid_low]")
+                audio_base = "[vid_low]"
             overlay_tags = [f"[{t}]" for t in vo_tags] + [f"[{t}]" for t in sfx_tags]
 
         # ── Final mix ──────────────────────────────────────────────────────────

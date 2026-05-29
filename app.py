@@ -2045,10 +2045,9 @@ with right_col:
                     st.stop()
 
                 # Step 3: ElevenLabs voiceovers ────────────────────────────────
-                # Voiceovers are now baked into the video as black-screen intro
-                # clips BEFORE each ranked clip starts — no post-mix timing needed.
-                # The path is stored directly on each clip dict; the compositor
-                # reads it and prepends the black intro during assembly.
+                # Voiceovers are generated as separate audio assets. They are
+                # layered onto the assembled video later, where the mixer keeps
+                # narration in its own non-overlapping lane and ducks clip audio.
                 el_key = st.session_state.get("el_api_key", "").strip()
                 el_vid = st.session_state.get("el_voice_id", "").strip()
 
@@ -2080,10 +2079,10 @@ with right_col:
                                 model_id=st.session_state.get("el_model", "eleven_multilingual_v2"),
                             )
                             if out_vo:
-                                # Store on the clip dict — compositor will prepend
-                                # a black-screen intro of exactly this audio's length.
+                                # Store on the clip dict so the audio mixer can
+                                # layer it onto the final assembled timeline.
                                 c["voiceover_path"] = out_vo
-                                _log(f"  🎙️ Voiceover for Rank #{c['rank']} ✓  (black intro will be inserted)")
+                                _log(f"  🎙️ Voiceover for Rank #{c['rank']} ✓")
                             else:
                                 _log(f"  ⚠ Voiceover for Rank #{c['rank']} failed")
 
